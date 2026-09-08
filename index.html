@@ -33,6 +33,13 @@
   body { font-family: 'Inter', sans-serif; color: var(--text); }
   input, select, button, textarea { font-family: 'Inter', sans-serif; }
   input[type=date]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
+  input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:focus {
+    -webkit-text-fill-color: var(--text);
+    -webkit-box-shadow: 0 0 0px 1000px var(--panel-2) inset;
+    box-shadow: 0 0 0px 1000px var(--panel-2) inset;
+    transition: background-color 9999s ease-in-out 0s;
+    caret-color: var(--text);
+  }
   ::-webkit-scrollbar { width: 0; height: 0; }
   @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
@@ -137,7 +144,7 @@
 
   .field-row { display: flex; flex-direction: column; gap: 4px; }
   .field-label { font-size: 11.5px; color: var(--text-dim); }
-  input[type=text], input[type=number], input[type=date] {
+  input[type=text], input[type=number], input[type=date], input[type=password] {
     background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 7px;
     padding: 8px 10px; font-size: 13.5px; width: 100%;
   }
@@ -180,7 +187,7 @@
  *  Sincroniza via Firebase Firestore (tempo real + persistência offline).
  * ---------------------------------------------------------------------- */
 
-const APP_BUILD = "2026-09-08.6"; // mude este valor a cada atualização, para conferir no app se a versão é a mais recente
+const APP_BUILD = "2026-09-08.8"; // mude este valor a cada atualização, para conferir no app se a versão é a mais recente
 
 const firebaseConfig = {
   apiKey: "AIzaSyAx6CD4hD9gD-r9kTL3nfAbE1Qg-w2LyTw",
@@ -256,6 +263,9 @@ let state = {
   receitasSearchText: "",
   showDespesaForm: false,
   showReceitaForm: false,
+  showChangePasswordForm: false,
+  changePasswordMsg: "",
+  changePasswordMsgOk: false,
   newItemRepeat: { despesa: "none", receita: "none" },
   openItems: new Set(),
   accounts: SEED_ACCOUNTS,
@@ -958,6 +968,23 @@ function lancamentoRowHtml(item, kind, currency, doneLabel, doneDateLabel) {
 
 /* ------------------------------ render: Contas ------------------------------ */
 
+function changePasswordFormHtml() {
+  return `
+    <div style="margin-top:14px;display:flex;flex-direction:column;gap:10px" id="change-password-form">
+      <div class="field-row"><div class="field-label">Senha atual</div>
+        <input type="password" id="cp-current" autocomplete="current-password"/></div>
+      <div class="field-row"><div class="field-label">Nova senha</div>
+        <input type="password" id="cp-new" autocomplete="new-password"/></div>
+      <div class="field-row"><div class="field-label">Confirmar nova senha</div>
+        <input type="password" id="cp-confirm" autocomplete="new-password"/></div>
+      ${state.changePasswordMsg ? `<div style="color:${state.changePasswordMsgOk ? "var(--brl)" : "var(--danger)"};font-size:12.5px">${esc(state.changePasswordMsg)}</div>` : ""}
+      <div class="form-actions">
+        <button class="cancel-btn" data-action="toggle-change-password">Cancelar</button>
+        <button class="add-btn" data-action="submit-change-password">${ICONS.check} Salvar nova senha</button>
+      </div>
+    </div>`;
+}
+
 function renderContasTab() {
   return `
     ${accountGroupHtml("Contas em Reais (R$)", "BRL", state.accounts.BRL)}
@@ -971,7 +998,11 @@ function renderContasTab() {
     <div class="section-label">Sessão</div>
     <div class="rate-card">
       <div class="rate-text" style="margin-bottom:10px">Conectado como ${esc(currentUser?.email || "")}</div>
-      <button class="cancel-btn" data-action="logout">Sair</button>
+      <div class="backup-row">
+        <button class="backup-btn" data-action="toggle-change-password">Trocar senha</button>
+        <button class="cancel-btn" data-action="logout" style="flex:1">Sair</button>
+      </div>
+      ${state.showChangePasswordForm ? changePasswordFormHtml() : ""}
     </div>
     <div style="text-align:center;font-size:10.5px;color:var(--text-dim);margin-top:14px">Versão do app: ${esc(APP_BUILD)}</div>`;
 }
@@ -1280,6 +1311,55 @@ function bindEvents() {
 
   const logoutBtn = shell.querySelector('[data-action="logout"]');
   if (logoutBtn) logoutBtn.addEventListener("click", () => auth.signOut());
+
+  shell.querySelectorAll('[data-action="toggle-change-password"]').forEach((btn) =>
+    btn.addEventListener("click", () => {
+      state.showChangePasswordForm = !state.showChangePasswordForm;
+      state.changePasswordMsg = "";
+      render();
+    })
+  );
+
+  const submitChangePwdBtn = shell.querySelector('[data-action="submit-change-password"]');
+  if (submitChangePwdBtn)
+    submitChangePwdBtn.addEventListener("click", () => {
+      const current = document.getElementById("cp-current").value;
+      const next = document.getElementById("cp-new").value;
+      const confirm = document.getElementById("cp-confirm").value;
+      if (!current || !next || !confirm) {
+        state.changePasswordMsg = "Preencha todos os campos.";
+        state.changePasswordMsgOk = false;
+        render();
+        return;
+      }
+      if (next !== confirm) {
+        state.changePasswordMsg = "A nova senha e a confirmação não coincidem.";
+        state.changePasswordMsgOk = false;
+        render();
+        return;
+      }
+      if (next.length < 6) {
+        state.changePasswordMsg = "A nova senha precisa ter pelo menos 6 caracteres.";
+        state.changePasswordMsgOk = false;
+        render();
+        return;
+      }
+      const cred = firebase.auth.EmailAuthProvider.credential(currentUser.email, current);
+      currentUser
+        .reauthenticateWithCredential(cred)
+        .then(() => currentUser.updatePassword(next))
+        .then(() => {
+          state.changePasswordMsg = "Senha alterada com sucesso.";
+          state.changePasswordMsgOk = true;
+          render();
+        })
+        .catch((err) => {
+          console.error(err);
+          state.changePasswordMsg = traduzErroAuth(err.code);
+          state.changePasswordMsgOk = false;
+          render();
+        });
+    });
 }
 
 /* ------------------------------ login / autenticação ------------------------------ */
@@ -1295,11 +1375,13 @@ function traduzErroAuth(code) {
     "auth/operation-not-allowed": "Login por e-mail/senha ainda não está ativado no Firebase (Authentication → Sign-in method).",
     "auth/user-disabled": "Esse usuário foi desativado no Firebase.",
     "auth/missing-password": "Digite a senha.",
+    "auth/weak-password": "A nova senha precisa ter pelo menos 6 caracteres.",
+    "auth/requires-recent-login": "Por segurança, confirme a senha atual corretamente para trocar a senha.",
   };
-  return `${map[code] || "Não foi possível entrar."} (código: ${code || "desconhecido"})`;
+  return `${map[code] || "Não foi possível concluir."} (código: ${code || "desconhecido"})`;
 }
 
-function renderLoginScreen(errorMsg, prefillEmail) {
+function renderLoginScreen(errorMsg, prefillEmail, infoMsg) {
   const shell = document.getElementById("app-shell");
   shell.innerHTML = `
     <div class="login-wrap">
@@ -1309,10 +1391,13 @@ function renderLoginScreen(errorMsg, prefillEmail) {
         <div class="field-row"><div class="field-label">E-mail</div><input type="text" id="login-email" inputmode="email" autocomplete="username" value="${esc(prefillEmail || "")}"/></div>
         <div class="field-row" style="margin-top:10px"><div class="field-label">Senha</div><input type="password" id="login-password" autocomplete="current-password"/></div>
         ${errorMsg ? `<div style="color:var(--danger);font-size:12.5px;margin-top:10px">${esc(errorMsg)}</div>` : ""}
+        ${infoMsg ? `<div style="color:var(--brl);font-size:12.5px;margin-top:10px">${esc(infoMsg)}</div>` : ""}
         <button class="add-btn" id="login-submit" style="width:100%;justify-content:center;margin-top:16px">Entrar</button>
+        <button class="cancel-btn" id="forgot-password" style="width:100%;justify-content:center;margin-top:10px;border:none">Esqueci minha senha</button>
       </div>
     </div>`;
   document.getElementById("login-submit").addEventListener("click", doLogin);
+  document.getElementById("forgot-password").addEventListener("click", doForgotPassword);
   shell.querySelectorAll("#login-email, #login-password").forEach((el) =>
     el.addEventListener("keydown", (e) => {
       if (e.key === "Enter") doLogin();
@@ -1331,6 +1416,25 @@ function doLogin() {
     console.error(err);
     renderLoginScreen(traduzErroAuth(err.code), email);
   });
+}
+
+function doForgotPassword() {
+  const email = document.getElementById("login-email").value.trim();
+  if (!email) {
+    renderLoginScreen("Digite seu e-mail acima primeiro, depois toque em \"Esqueci minha senha\".", email);
+    return;
+  }
+  const btn = document.getElementById("forgot-password");
+  btn.textContent = "Enviando…";
+  auth
+    .sendPasswordResetEmail(email)
+    .then(() => {
+      renderLoginScreen(null, email, `Enviamos um e-mail para ${email} com um link para você criar uma nova senha. Confira também a caixa de spam.`);
+    })
+    .catch((err) => {
+      console.error(err);
+      renderLoginScreen(traduzErroAuth(err.code), email);
+    });
 }
 
 auth.onAuthStateChanged((user) => {
