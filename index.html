@@ -521,9 +521,11 @@ function renderFluxoTab() {
 
 function buildChartData(mode) {
   const accounts = state.accounts;
+  const today = todayStr();
   let dateSet;
   if (mode === "previsto") {
     dateSet = new Set([
+      today,
       ...accounts.BRL.map((a) => a.initialDate),
       ...accounts.PEN.map((a) => a.initialDate),
       ...state.despesas.map((d) => d.dueDate),
@@ -537,9 +539,12 @@ function buildChartData(mode) {
     state.receitas.forEach((r) => {
       if (r.done) dateSet.add(r.doneDate || r.dueDate);
     });
-    dateSet.add(todayStr());
+    dateSet.add(today);
   }
-  const dates = [...dateSet].filter(Boolean).sort();
+  let dates = [...dateSet].filter(Boolean).sort();
+  // o previsto olha só daqui pra frente: o saldo até hoje já é "real",
+  // o que importa projetar é o que ainda vai acontecer.
+  if (mode === "previsto") dates = dates.filter((d) => d >= today);
   return dates.map((date) => {
     const bal = computeBalancesAt(accounts, state.despesas, state.receitas, mode, date);
     const t = totalsFromBalances(accounts, bal, state.rate);
