@@ -1061,23 +1061,26 @@ function bindEvents() {
 function traduzErroAuth(code) {
   const map = {
     "auth/invalid-email": "E-mail inválido.",
-    "auth/user-not-found": "Usuário não encontrado.",
+    "auth/user-not-found": "Usuário não encontrado. Confira se essa conta foi criada em Authentication → Users.",
     "auth/wrong-password": "Senha incorreta.",
     "auth/invalid-credential": "E-mail ou senha incorretos.",
     "auth/too-many-requests": "Muitas tentativas. Aguarde um pouco e tente de novo.",
     "auth/network-request-failed": "Sem conexão com a internet para entrar.",
+    "auth/operation-not-allowed": "Login por e-mail/senha ainda não está ativado no Firebase (Authentication → Sign-in method).",
+    "auth/user-disabled": "Esse usuário foi desativado no Firebase.",
+    "auth/missing-password": "Digite a senha.",
   };
-  return map[code] || "Não foi possível entrar. Tente novamente.";
+  return `${map[code] || "Não foi possível entrar."} (código: ${code || "desconhecido"})`;
 }
 
-function renderLoginScreen(errorMsg) {
+function renderLoginScreen(errorMsg, prefillEmail) {
   const shell = document.getElementById("app-shell");
   shell.innerHTML = `
     <div class="login-wrap">
       <div class="login-card">
         <div class="header-title" style="margin-bottom:4px">Controle Financeiro</div>
         <div class="header-subtitle" style="margin-bottom:18px">Entre para continuar</div>
-        <div class="field-row"><div class="field-label">E-mail</div><input type="text" id="login-email" inputmode="email" autocomplete="username"/></div>
+        <div class="field-row"><div class="field-label">E-mail</div><input type="text" id="login-email" inputmode="email" autocomplete="username" value="${esc(prefillEmail || "")}"/></div>
         <div class="field-row" style="margin-top:10px"><div class="field-label">Senha</div><input type="password" id="login-password" autocomplete="current-password"/></div>
         ${errorMsg ? `<div style="color:var(--danger);font-size:12.5px;margin-top:10px">${esc(errorMsg)}</div>` : ""}
         <button class="add-btn" id="login-submit" style="width:100%;justify-content:center;margin-top:16px">Entrar</button>
@@ -1089,6 +1092,7 @@ function renderLoginScreen(errorMsg) {
       if (e.key === "Enter") doLogin();
     })
   );
+  if (prefillEmail) document.getElementById("login-password").focus();
 }
 
 function doLogin() {
@@ -1099,7 +1103,7 @@ function doLogin() {
   btn.textContent = "Entrando…";
   auth.signInWithEmailAndPassword(email, password).catch((err) => {
     console.error(err);
-    renderLoginScreen(traduzErroAuth(err.code));
+    renderLoginScreen(traduzErroAuth(err.code), email);
   });
 }
 
