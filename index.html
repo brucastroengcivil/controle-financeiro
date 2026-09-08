@@ -180,7 +180,7 @@
  *  Sincroniza via Firebase Firestore (tempo real + persistência offline).
  * ---------------------------------------------------------------------- */
 
-const APP_BUILD = "2026-09-08.4"; // mude este valor a cada atualização, para conferir no app se a versão é a mais recente
+const APP_BUILD = "2026-09-08.5"; // mude este valor a cada atualização, para conferir no app se a versão é a mais recente
 
 const firebaseConfig = {
   apiKey: "AIzaSyAx6CD4hD9gD-r9kTL3nfAbE1Qg-w2LyTw",
@@ -255,6 +255,7 @@ let state = {
   receitasSearchText: "",
   showDespesaForm: false,
   showReceitaForm: false,
+  newItemRepeat: { despesa: "none", receita: "none" },
   openItems: new Set(),
   accounts: SEED_ACCOUNTS,
   rate: SEED_RATE,
@@ -270,6 +271,29 @@ let firstSnapshotHandled = false;
 
 const uid = (p) => `${p}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 const todayStr = () => new Date().toISOString().slice(0, 10);
+const addDaysStr = (dateStr, days) => {
+  const d = new Date(dateStr + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+};
+const addMonthsClampedStr = (dateStr, months) => {
+  const [y, m, day] = dateStr.split("-").map(Number);
+  const target = new Date(Date.UTC(y, m - 1 + months, 1));
+  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+  const finalDay = Math.min(day, lastDay);
+  return new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth(), finalDay)).toISOString().slice(0, 10);
+};
+function generateRecurringDates(start, end, freq) {
+  const dates = [];
+  let i = 0;
+  let cursor = start;
+  while (cursor <= end && i < 500) {
+    dates.push(cursor);
+    i++;
+    cursor = freq === "weekly" ? addDaysStr(start, i * 7) : addMonthsClampedStr(start, i);
+  }
+  return dates;
+}
 const fmtBRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const fmtPEN = new Intl.NumberFormat("es-PE", { style: "currency", currency: "PEN" });
 const fmt = (v, cur) => (cur === "PEN" ? fmtPEN : fmtBRL).format(v || 0);
@@ -834,6 +858,7 @@ function renderLancamentosTab(kind) {
 }
 
 function newItemFormHtml(kind, accountNames) {
+  const repeatMode = state.newItemRepeat[kind] || "none";
   return `
     <div class="form-card" data-new-form="${kind}">
       <div class="field-row"><div class="field-label">Conta</div>
@@ -842,10 +867,27 @@ function newItemFormHtml(kind, accountNames) {
       <div class="field-row"><div class="field-label">Descrição</div>
         <input type="text" data-field="description" placeholder="Ex: Aluguel"/>
       </div>
-      <div class="field-row"><div class="field-label">Data prevista</div>
-        <input type="date" data-field="dueDate" value="${todayStr()}"/>
+      <div class="field-row"><div class="field-label">Repetição</div>
+        <select data-action="set-repeat-mode" data-kind="${kind}">
+          <option value="none" ${repeatMode === "none" ? "selected" : ""}>Não repete (lançamento único)</option>
+          <option value="weekly" ${repeatMode === "weekly" ? "selected" : ""}>Repete toda semana</option>
+          <option value="monthly" ${repeatMode === "monthly" ? "selected" : ""}>Repete todo mês</option>
+        </select>
       </div>
-      <div class="field-row"><div class="field-label">Valor</div>
+      ${
+        repeatMode === "none"
+          ? `<div class="field-row"><div class="field-label">Data prevista</div>
+        <input type="date" data-field="dueDate" value="${todayStr()}"/>
+      </div>`
+          : `<div class="field-row"><div class="field-label">Data de início</div>
+        <input type="date" data-field="startDate" value="${todayStr()}"/>
+      </div>
+      <div class="field-row"><div class="field-label">Data de fim</div>
+        <input type="date" data-field="endDate" value="${todayStr()}"/>
+      </div>
+      <div style="font-size:11.5px;color:var(--text-dim)">Cria um lançamento com o valor cheio em cada ${repeatMode === "weekly" ? "semana" : "mês"}, do início ao fim (não é parcelado).</div>`
+      }
+      <div class="field-row"><div class="field-label">Valor${repeatMode !== "none" ? " (de cada ocorrência)" : ""}</div>
         <input type="number" step="0.01" data-field="value" placeholder="0.00"/>
       </div>
       <div class="form-actions">
@@ -1053,19 +1095,43 @@ function bindEvents() {
       render();
     })
   );
+  shell.querySelectorAll('[data-action="set-repeat-mode"]').forEach((sel) =>
+    sel.addEventListener("change", (e) => {
+      state.newItemRepeat[sel.dataset.kind] = e.target.value;
+      render();
+    })
+  );
+
   shell.querySelectorAll('[data-action="submit-form"]').forEach((btn) =>
     btn.addEventListener("click", () => {
       const kind = btn.dataset.kind;
       const form = shell.querySelector(`[data-new-form="${kind}"]`);
       const account = form.querySelector('[data-field="account"]').value;
       const description = form.querySelector('[data-field="description"]').value.trim();
-      const dueDate = form.querySelector('[data-field="dueDate"]').value;
       const value = parseFloat(form.querySelector('[data-field="value"]').value) || 0;
-      if (!description || !dueDate) return;
+      const repeatMode = state.newItemRepeat[kind] || "none";
+      if (!description) return;
+
+      let dueDates = [];
+      if (repeatMode === "none") {
+        const dueDate = form.querySelector('[data-field="dueDate"]').value;
+        if (!dueDate) return;
+        dueDates = [dueDate];
+      } else {
+        const startDate = form.querySelector('[data-field="startDate"]').value;
+        const endDate = form.querySelector('[data-field="endDate"]').value;
+        if (!startDate || !endDate || endDate < startDate) return;
+        dueDates = generateRecurringDates(startDate, endDate, repeatMode);
+        if (dueDates.length === 0) return;
+      }
+
       mutate(() => {
         const list = kind === "despesa" ? state.despesas : state.receitas;
-        list.push({ id: uid(kind), account, description, dueDate, value, done: false, doneDate: null });
+        dueDates.forEach((dueDate) => {
+          list.push({ id: uid(kind), account, description, dueDate, value, done: false, doneDate: null });
+        });
         state[kind === "despesa" ? "showDespesaForm" : "showReceitaForm"] = false;
+        state.newItemRepeat[kind] = "none";
       });
     })
   );
