@@ -180,7 +180,7 @@
  *  Sincroniza via Firebase Firestore (tempo real + persistência offline).
  * ---------------------------------------------------------------------- */
 
-const APP_BUILD = "2026-09-08.5"; // mude este valor a cada atualização, para conferir no app se a versão é a mais recente
+const APP_BUILD = "2026-09-08.6"; // mude este valor a cada atualização, para conferir no app se a versão é a mais recente
 
 const firebaseConfig = {
   apiKey: "AIzaSyAx6CD4hD9gD-r9kTL3nfAbE1Qg-w2LyTw",
@@ -244,6 +244,7 @@ let state = {
   tab: "fluxo",
   fluxoMode: "real",
   graficoMode: "previsto",
+  graficoRealPeriod: "3m",
   fluxoFilterYear: "todos",
   fluxoFilterMonth: "todos",
   fluxoSearchText: "",
@@ -756,7 +757,23 @@ function bindChartInteractivity(shell) {
 
 function renderGraficoTab() {
   const mode = state.graficoMode;
-  const data = buildChartData(mode);
+  let data = buildChartData(mode);
+
+  if (mode === "real" && state.graficoRealPeriod !== "tudo") {
+    const days = { "30d": 30, "3m": 90, "6m": 180 }[state.graficoRealPeriod] || 0;
+    const cutoff = addDaysStr(todayStr(), -days);
+    data = data.filter((d) => d.date >= cutoff);
+  }
+
+  const periodSelectorHtml =
+    mode === "real"
+      ? `<select data-action="set-real-period" style="margin-bottom:10px;width:100%">
+        <option value="30d" ${state.graficoRealPeriod === "30d" ? "selected" : ""}>Últimos 30 dias</option>
+        <option value="3m" ${state.graficoRealPeriod === "3m" ? "selected" : ""}>Últimos 3 meses</option>
+        <option value="6m" ${state.graficoRealPeriod === "6m" ? "selected" : ""}>Últimos 6 meses</option>
+        <option value="tudo" ${state.graficoRealPeriod === "tudo" ? "selected" : ""}>Desde o início</option>
+      </select>`
+      : "";
 
   if (data.length < 2) {
     return `
@@ -764,7 +781,10 @@ function renderGraficoTab() {
         <button class="${mode === "real" ? "active" : ""}" data-action="set-grafico-mode" data-mode="real">Real</button>
         <button class="${mode === "previsto" ? "active" : ""}" data-action="set-grafico-mode" data-mode="previsto">Previsto</button>
       </div>
-      <div class="empty-state" style="margin-top:16px">Lance despesas e receitas para ver a projeção do saldo aqui.</div>`;
+      ${periodSelectorHtml}
+      <div class="empty-state" style="margin-top:16px">${
+        mode === "real" ? "Nenhuma movimentação registrada nesse período." : "Lance despesas e receitas para ver a projeção do saldo aqui."
+      }</div>`;
   }
 
   const { min, max } = findExtremes(data);
@@ -774,8 +794,9 @@ function renderGraficoTab() {
       <button class="${mode === "real" ? "active" : ""}" data-action="set-grafico-mode" data-mode="real">Real</button>
       <button class="${mode === "previsto" ? "active" : ""}" data-action="set-grafico-mode" data-mode="previsto">Previsto</button>
     </div>
+    ${periodSelectorHtml}
 
-    <div class="section-label">${mode === "previsto" ? "Menor saldo previsto" : "Menor saldo já registrado"}</div>
+    <div class="section-label">${mode === "previsto" ? "Menor saldo previsto" : "Menor saldo no período"}</div>
     <div class="extreme-card" style="border-color:${min.total < 0 ? "var(--danger)" : "var(--border)"}">
       <div>
         <div class="extreme-card-value" style="color:${min.total < 0 ? "var(--danger)" : "var(--brl)"}">${fmtBRL.format(min.total)}</div>
@@ -1049,6 +1070,13 @@ function bindEvents() {
       render();
     })
   );
+
+  const realPeriodSel = shell.querySelector('[data-action="set-real-period"]');
+  if (realPeriodSel)
+    realPeriodSel.addEventListener("change", (e) => {
+      state.graficoRealPeriod = e.target.value;
+      render();
+    });
 
   shell.querySelectorAll('[data-action="search-text"]').forEach((input) =>
     input.addEventListener("input", (e) => {
