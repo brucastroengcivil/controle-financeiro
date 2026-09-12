@@ -211,7 +211,7 @@
  *  Sincroniza via Firebase Firestore (tempo real + persistência offline).
  * ---------------------------------------------------------------------- */
 
-const APP_BUILD = "2026-09-11.1"; // mude este valor a cada atualização, para conferir no app se a versão é a mais recente
+const APP_BUILD = "2026-09-11.2"; // mude este valor a cada atualização, para conferir no app se a versão é a mais recente
 
 const firebaseConfig = {
   apiKey: "AIzaSyAx6CD4hD9gD-r9kTL3nfAbE1Qg-w2LyTw",
@@ -279,7 +279,6 @@ let state = {
   tab: "fluxo",
   fluxoMode: "real",
   graficoMode: "previsto",
-  graficoRealPeriod: "3m",
   fluxoFilterYear: _curYear,
   fluxoFilterMonth: _curMonth,
   fluxoSearchText: "",
@@ -722,36 +721,31 @@ function renderGroupedLedger(rows) {
 
 /* ------------------------------ dados e gráfico do saldo ------------------------------ */
 
-function buildChartData(mode) {
-  const accounts = state.accounts;
-  const today = todayStr();
-  let dateSet;
+const MONTH_ABBR = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+
+function buildMonthlyChartData(mode) {
+  const today = new Date();
+  const todayIso = todayStr();
+  const months = [];
   if (mode === "previsto") {
-    dateSet = new Set([
-      today,
-      ...accounts.BRL.map((a) => a.initialDate),
-      ...accounts.PEN.map((a) => a.initialDate),
-      ...state.despesas.map((d) => d.dueDate),
-      ...state.receitas.map((r) => r.dueDate),
-    ]);
+    for (let i = 0; i < 12; i++) months.push(new Date(Date.UTC(today.getFullYear(), today.getMonth() + i, 1)));
   } else {
-    dateSet = new Set([...accounts.BRL.map((a) => a.initialDate), ...accounts.PEN.map((a) => a.initialDate)]);
-    state.despesas.forEach((d) => {
-      if (d.done) dateSet.add(d.doneDate || d.dueDate);
-    });
-    state.receitas.forEach((r) => {
-      if (r.done) dateSet.add(r.doneDate || r.dueDate);
-    });
-    dateSet.add(today);
+    for (let i = 11; i >= 0; i--) months.push(new Date(Date.UTC(today.getFullYear(), today.getMonth() - i, 1)));
   }
-  let dates = [...dateSet].filter(Boolean).sort();
-  // o previsto olha só daqui pra frente; o real nunca passa de hoje.
-  if (mode === "previsto") dates = dates.filter((d) => d >= today);
-  else dates = dates.filter((d) => d <= today);
-  return dates.map((date) => {
-    const bal = computeBalancesAt(accounts, state.despesas, state.receitas, mode, date);
-    const t = totalsFromBalances(accounts, bal, state.rate);
-    return { date, total: Math.round(t.totalBRL * 100) / 100 };
+  return months.map((d) => {
+    const year = d.getUTCFullYear();
+    const month = d.getUTCMonth();
+    const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+    let targetDate = new Date(Date.UTC(year, month, lastDay)).toISOString().slice(0, 10);
+    if (mode === "real" && targetDate > todayIso) targetDate = todayIso;
+    if (mode === "previsto" && targetDate < todayIso) targetDate = todayIso;
+    const bal = computeBalancesAt(state.accounts, state.despesas, state.receitas, mode, targetDate);
+    const t = totalsFromBalances(state.accounts, bal, state.rate);
+    return {
+      date: targetDate,
+      label: `${MONTH_ABBR[month]}/${String(year).slice(2)}`,
+      total: Math.round(t.totalBRL * 100) / 100,
+    };
   });
 }
 
@@ -767,75 +761,64 @@ function findExtremes(data) {
 function buildBalanceChart(data) {
   const W = 400,
     H = 260,
-    PAD_X = 10,
+    PAD_X = 12,
     PAD_TOP = 34,
-    PAD_BOTTOM = 26;
+    PAD_BOTTOM = 30;
   const values = data.map((d) => d.total);
   const min = Math.min(...values, 0);
   const max = Math.max(...values, 0);
   const range = max - min || 1;
   const usableH = H - PAD_TOP - PAD_BOTTOM;
   const scaleY = (v) => H - PAD_BOTTOM - ((v - min) / range) * usableH;
-  const stepX = (W - PAD_X * 2) / (data.length - 1 || 1);
-  const points = data.map((d, i) => [PAD_X + i * stepX, scaleY(d.total)]);
   const zeroY = scaleY(0);
 
-  const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
-  const areaPath = `${linePath} L${points[points.length - 1][0].toFixed(1)},${zeroY.toFixed(1)} L${points[0][0].toFixed(1)},${zeroY.toFixed(1)} Z`;
+  const n = data.length;
+  const slotW = (W - PAD_X * 2) / n;
+  const barW = Math.max(slotW * 0.52, 4);
+
+  const bars = data.map((d, i) => {
+    const cx = PAD_X + slotW * i + slotW / 2;
+    const valY = scaleY(d.total);
+    const top = d.total >= 0 ? valY : zeroY;
+    const height = Math.max(Math.abs(zeroY - valY), 1);
+    return { ...d, cx, valY, top, height };
+  });
 
   const { min: minPoint, max: maxPoint } = findExtremes(data);
   const minIdx = data.indexOf(minPoint);
   const maxIdx = data.indexOf(maxPoint);
-  const minXY = points[minIdx];
-  const maxXY = points[maxIdx];
+  const minBar = bars[minIdx];
+  const maxBar = bars[maxIdx];
 
-  const clipId = "clip-" + Math.random().toString(36).slice(2, 8);
+  const minLabelAnchor = minBar.cx > W * 0.75 ? "end" : minBar.cx < W * 0.25 ? "start" : "middle";
+  const minLabelY = minBar.total >= 0 ? minBar.valY - 20 : minBar.valY + 14;
 
-  const minLabelAnchor = minXY[0] > W * 0.6 ? "end" : minXY[0] < W * 0.15 ? "start" : "middle";
-  const minLabelDx = minLabelAnchor === "end" ? -6 : minLabelAnchor === "start" ? 6 : 0;
-  const minLabelY = minXY[1] < H - PAD_BOTTOM - 26 ? minXY[1] - 14 : minXY[1] - 14;
+  const maxLabelAnchor = maxBar.cx > W * 0.75 ? "end" : maxBar.cx < W * 0.25 ? "start" : "middle";
+  const maxLabelY = maxBar.total >= 0 ? maxBar.valY - 8 : maxBar.valY + 14;
 
-  const maxLabelAnchor = maxXY[0] > W * 0.6 ? "end" : maxXY[0] < W * 0.15 ? "start" : "middle";
-  const maxLabelDx = maxLabelAnchor === "end" ? -6 : maxLabelAnchor === "start" ? 6 : 0;
+  const barsSvg = bars
+    .map(
+      (b) => `
+      <rect x="${(b.cx - barW / 2).toFixed(1)}" y="${b.top.toFixed(1)}" width="${barW.toFixed(1)}" height="${b.height.toFixed(1)}"
+        rx="3" fill="${b.total >= 0 ? "var(--brl)" : "var(--danger)"}" opacity="0.88"/>
+      <text x="${b.cx.toFixed(1)}" y="${H - PAD_BOTTOM + 15}" text-anchor="middle" font-size="9" fill="var(--text-dim)" font-family="'IBM Plex Mono',monospace">${b.label}</text>`
+    )
+    .join("");
 
-  const firstDate = data[0].date,
-    lastDate = data[data.length - 1].date;
-
-  const pointsPayload = JSON.stringify(points.map((p, i) => ({ x: p[0], y: p[1], date: data[i].date, total: data[i].total })));
+  const pointsPayload = JSON.stringify(bars.map((b) => ({ x: b.cx, y: b.valY, label: b.label, total: b.total })));
 
   return `
     <div class="chart-svg-wrap" data-chart-points='${pointsPayload}' data-chart-w="${W}" data-chart-h="${H}">
       <svg class="balance-chart-svg" viewBox="0 0 ${W} ${H}" style="width:100%;height:260px;display:block;overflow:visible">
-        <defs>
-          <clipPath id="${clipId}-above"><rect x="0" y="0" width="${W}" height="${zeroY.toFixed(1)}"/></clipPath>
-          <clipPath id="${clipId}-below"><rect x="0" y="${zeroY.toFixed(1)}" width="${W}" height="${(H - zeroY).toFixed(1)}"/></clipPath>
-          <linearGradient id="${clipId}-gpos" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="var(--brl)" stop-opacity="0.4"/>
-            <stop offset="100%" stop-color="var(--brl)" stop-opacity="0"/>
-          </linearGradient>
-          <linearGradient id="${clipId}-gneg" x1="0" y1="1" x2="0" y2="0">
-            <stop offset="0%" stop-color="var(--danger)" stop-opacity="0.4"/>
-            <stop offset="100%" stop-color="var(--danger)" stop-opacity="0"/>
-          </linearGradient>
-        </defs>
-
         <line x1="${PAD_X}" y1="${zeroY.toFixed(1)}" x2="${W - PAD_X}" y2="${zeroY.toFixed(1)}" stroke="rgba(255,255,255,0.22)" stroke-width="1" stroke-dasharray="3,3"/>
         <text x="${W - PAD_X}" y="${(zeroY - 5).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--text-dim)" font-family="'IBM Plex Mono',monospace">R$ 0</text>
 
-        <path d="${areaPath}" fill="url(#${clipId}-gpos)" clip-path="url(#${clipId}-above)"/>
-        <path d="${areaPath}" fill="url(#${clipId}-gneg)" clip-path="url(#${clipId}-below)"/>
-        <path d="${linePath}" fill="none" stroke="var(--brl)" stroke-width="2" clip-path="url(#${clipId}-above)"/>
-        <path d="${linePath}" fill="none" stroke="var(--danger)" stroke-width="2" clip-path="url(#${clipId}-below)"/>
+        ${barsSvg}
 
-        <line x1="${minXY[0].toFixed(1)}" y1="${minXY[1].toFixed(1)}" x2="${minXY[0].toFixed(1)}" y2="${H - PAD_BOTTOM}" stroke="var(--gold)" stroke-width="1" stroke-dasharray="2,3" opacity="0.6"/>
-        <circle cx="${minXY[0].toFixed(1)}" cy="${minXY[1].toFixed(1)}" r="4" fill="var(--bg)" stroke="var(--gold)" stroke-width="2"/>
-        <text x="${(minXY[0] + minLabelDx).toFixed(1)}" y="${minLabelY.toFixed(1)}" text-anchor="${minLabelAnchor}" font-size="10.5" font-weight="600" fill="var(--gold)" font-family="'IBM Plex Mono',monospace">menor: ${fmtBRL.format(minPoint.total)}</text>
-        <text x="${(minXY[0] + minLabelDx).toFixed(1)}" y="${(minLabelY + 12).toFixed(1)}" text-anchor="${minLabelAnchor}" font-size="9" fill="var(--text-dim)" font-family="'IBM Plex Mono',monospace">${fmtDate(minPoint.date)}</text>
-
+        <text x="${(minBar.cx).toFixed(1)}" y="${minLabelY.toFixed(1)}" text-anchor="${minLabelAnchor}" font-size="10.5" font-weight="600" fill="var(--gold)" font-family="'IBM Plex Mono',monospace">menor: ${fmtBRL.format(minPoint.total)}</text>
         ${
           maxIdx !== minIdx
-            ? `<circle cx="${maxXY[0].toFixed(1)}" cy="${maxXY[1].toFixed(1)}" r="3" fill="var(--panel)" stroke="var(--text-dim)" stroke-width="1.5"/>
-        <text x="${(maxXY[0] + maxLabelDx).toFixed(1)}" y="${(maxXY[1] - 10).toFixed(1)}" text-anchor="${maxLabelAnchor}" font-size="9" fill="var(--text-dim)" font-family="'IBM Plex Mono',monospace">maior: ${fmtBRL.format(maxPoint.total)}</text>`
+            ? `<text x="${maxBar.cx.toFixed(1)}" y="${maxLabelY.toFixed(1)}" text-anchor="${maxLabelAnchor}" font-size="9" fill="var(--text-dim)" font-family="'IBM Plex Mono',monospace">maior: ${fmtBRL.format(maxPoint.total)}</text>`
             : ""
         }
 
@@ -844,10 +827,7 @@ function buildBalanceChart(data) {
       </svg>
       <div class="chart-tooltip" style="display:none"></div>
     </div>
-    <div style="display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-dim);padding:0 2px;margin-top:-4px">
-      <span>${fmtDate(firstDate)}</span><span>${fmtDate(lastDate)}</span>
-    </div>
-    <div style="text-align:center;font-size:10.5px;color:var(--text-dim);margin-top:6px">Toque ou passe o dedo sobre o gráfico para ver cada ponto</div>`;
+    <div style="text-align:center;font-size:10.5px;color:var(--text-dim);margin-top:6px">Toque ou passe o dedo sobre o gráfico para ver cada mês</div>`;
 }
 
 function bindChartInteractivity(shell) {
@@ -886,7 +866,7 @@ function bindChartInteractivity(shell) {
     hoverDot.setAttribute("cx", nearest.x);
     hoverDot.setAttribute("cy", nearest.y);
     hoverDot.style.display = "block";
-    tooltip.textContent = `${fmtDate(nearest.date)} · ${fmtBRL.format(nearest.total)}`;
+    tooltip.textContent = `${nearest.label} · ${fmtBRL.format(nearest.total)}`;
     tooltip.style.display = "block";
     const pxX = (nearest.x / W) * rect.width;
     const pxY = (nearest.y / H) * rect.height;
@@ -909,35 +889,7 @@ function bindChartInteractivity(shell) {
 
 function renderGraficoTab() {
   const mode = state.graficoMode;
-  let data = buildChartData(mode);
-
-  if (mode === "real" && state.graficoRealPeriod !== "tudo") {
-    const days = { "30d": 30, "3m": 90, "6m": 180 }[state.graficoRealPeriod] || 0;
-    const cutoff = addDaysStr(todayStr(), -days);
-    data = data.filter((d) => d.date >= cutoff);
-  }
-
-  const periodSelectorHtml =
-    mode === "real"
-      ? `<select data-action="set-real-period" style="margin-bottom:10px;width:100%">
-        <option value="30d" ${state.graficoRealPeriod === "30d" ? "selected" : ""}>Últimos 30 dias</option>
-        <option value="3m" ${state.graficoRealPeriod === "3m" ? "selected" : ""}>Últimos 3 meses</option>
-        <option value="6m" ${state.graficoRealPeriod === "6m" ? "selected" : ""}>Últimos 6 meses</option>
-        <option value="tudo" ${state.graficoRealPeriod === "tudo" ? "selected" : ""}>Desde o início</option>
-      </select>`
-      : "";
-
-  if (data.length < 2) {
-    return `
-      <div class="segmented">
-        <button class="${mode === "real" ? "active" : ""}" data-action="set-grafico-mode" data-mode="real">Real</button>
-        <button class="${mode === "previsto" ? "active" : ""}" data-action="set-grafico-mode" data-mode="previsto">Previsto</button>
-      </div>
-      ${periodSelectorHtml}
-      <div class="empty-state" style="margin-top:16px">${
-        mode === "real" ? "Nenhuma movimentação registrada nesse período." : "Lance despesas e receitas para ver a projeção do saldo aqui."
-      }</div>`;
-  }
+  const data = buildMonthlyChartData(mode);
 
   const { min, max } = findExtremes(data);
 
@@ -946,17 +898,17 @@ function renderGraficoTab() {
       <button class="${mode === "real" ? "active" : ""}" data-action="set-grafico-mode" data-mode="real">Real</button>
       <button class="${mode === "previsto" ? "active" : ""}" data-action="set-grafico-mode" data-mode="previsto">Previsto</button>
     </div>
-    ${periodSelectorHtml}
+    <div class="section-label" style="margin-top:10px">${mode === "previsto" ? "Próximos 12 meses" : "Últimos 12 meses"}</div>
 
     <div class="section-label">${mode === "previsto" ? "Menor saldo previsto" : "Menor saldo no período"}</div>
     <div class="extreme-card" style="border-color:${min.total < 0 ? "var(--danger)" : "var(--border)"}">
       <div>
         <div class="extreme-card-value" style="color:${min.total < 0 ? "var(--danger)" : "var(--brl)"}">${fmtBRL.format(min.total)}</div>
-        <div class="extreme-card-date">${fmtDate(min.date)}${min.total < 0 ? " · saldo negativo" : " · ainda positivo"}</div>
+        <div class="extreme-card-date">${min.label}${min.total < 0 ? " · saldo negativo" : " · ainda positivo"}</div>
       </div>
     </div>
 
-    <div class="section-label">Saldo total (R$) ao longo do tempo</div>
+    <div class="section-label">Saldo total (R$) por mês</div>
     <div class="chart-card">${buildBalanceChart(data)}</div>
 
     <div class="total-strip" style="margin-top:12px">
@@ -1303,13 +1255,6 @@ function bindEvents() {
       render();
     })
   );
-
-  const realPeriodSel = shell.querySelector('[data-action="set-real-period"]');
-  if (realPeriodSel)
-    realPeriodSel.addEventListener("change", (e) => {
-      state.graficoRealPeriod = e.target.value;
-      render();
-    });
 
   shell.querySelectorAll('[data-action="search-text"]').forEach((input) =>
     input.addEventListener("input", (e) => {
