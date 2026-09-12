@@ -211,7 +211,7 @@
  *  Sincroniza via Firebase Firestore (tempo real + persistência offline).
  * ---------------------------------------------------------------------- */
 
-const APP_BUILD = "2026-09-11.2"; // mude este valor a cada atualização, para conferir no app se a versão é a mais recente
+const APP_BUILD = "2026-09-11.3"; // mude este valor a cada atualização, para conferir no app se a versão é a mais recente
 
 const firebaseConfig = {
   apiKey: "AIzaSyAx6CD4hD9gD-r9kTL3nfAbE1Qg-w2LyTw",
@@ -774,51 +774,78 @@ function buildBalanceChart(data) {
 
   const n = data.length;
   const slotW = (W - PAD_X * 2) / n;
-  const barW = Math.max(slotW * 0.52, 4);
 
-  const bars = data.map((d, i) => {
+  const points = data.map((d, i) => {
     const cx = PAD_X + slotW * i + slotW / 2;
-    const valY = scaleY(d.total);
-    const top = d.total >= 0 ? valY : zeroY;
-    const height = Math.max(Math.abs(zeroY - valY), 1);
-    return { ...d, cx, valY, top, height };
+    return { ...d, cx, valY: scaleY(d.total) };
   });
+
+  const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"}${p.cx.toFixed(1)},${p.valY.toFixed(1)}`).join(" ");
+  const areaPath = `${linePath} L${points[points.length - 1].cx.toFixed(1)},${zeroY.toFixed(1)} L${points[0].cx.toFixed(1)},${zeroY.toFixed(1)} Z`;
+
+  // linhas pontilhadas separando cada mês (nas bordas de cada "fatia")
+  const monthDividers = [];
+  for (let i = 1; i < n; i++) {
+    const x = (PAD_X + slotW * i).toFixed(1);
+    monthDividers.push(`<line x1="${x}" y1="${PAD_TOP - 6}" x2="${x}" y2="${H - PAD_BOTTOM}" stroke="rgba(255,255,255,0.09)" stroke-width="1" stroke-dasharray="2,3"/>`);
+  }
+
+  const monthLabels = points
+    .map((p) => `<text x="${p.cx.toFixed(1)}" y="${H - PAD_BOTTOM + 15}" text-anchor="middle" font-size="9" fill="var(--text-dim)" font-family="'IBM Plex Mono',monospace">${p.label}</text>`)
+    .join("");
 
   const { min: minPoint, max: maxPoint } = findExtremes(data);
   const minIdx = data.indexOf(minPoint);
   const maxIdx = data.indexOf(maxPoint);
-  const minBar = bars[minIdx];
-  const maxBar = bars[maxIdx];
+  const minXY = points[minIdx];
+  const maxXY = points[maxIdx];
 
-  const minLabelAnchor = minBar.cx > W * 0.75 ? "end" : minBar.cx < W * 0.25 ? "start" : "middle";
-  const minLabelY = minBar.total >= 0 ? minBar.valY - 20 : minBar.valY + 14;
+  const clipId = "clip-" + Math.random().toString(36).slice(2, 8);
 
-  const maxLabelAnchor = maxBar.cx > W * 0.75 ? "end" : maxBar.cx < W * 0.25 ? "start" : "middle";
-  const maxLabelY = maxBar.total >= 0 ? maxBar.valY - 8 : maxBar.valY + 14;
+  const minLabelAnchor = minXY.cx > W * 0.75 ? "end" : minXY.cx < W * 0.25 ? "start" : "middle";
+  const minLabelY = minXY.valY < H / 2 ? minXY.valY + 26 : minXY.valY - 14;
 
-  const barsSvg = bars
-    .map(
-      (b) => `
-      <rect x="${(b.cx - barW / 2).toFixed(1)}" y="${b.top.toFixed(1)}" width="${barW.toFixed(1)}" height="${b.height.toFixed(1)}"
-        rx="3" fill="${b.total >= 0 ? "var(--brl)" : "var(--danger)"}" opacity="0.88"/>
-      <text x="${b.cx.toFixed(1)}" y="${H - PAD_BOTTOM + 15}" text-anchor="middle" font-size="9" fill="var(--text-dim)" font-family="'IBM Plex Mono',monospace">${b.label}</text>`
-    )
-    .join("");
+  const maxLabelAnchor = maxXY.cx > W * 0.75 ? "end" : maxXY.cx < W * 0.25 ? "start" : "middle";
+  const maxLabelY = maxXY.valY < H / 2 ? maxXY.valY - 10 : maxXY.valY - 10;
 
-  const pointsPayload = JSON.stringify(bars.map((b) => ({ x: b.cx, y: b.valY, label: b.label, total: b.total })));
+  const pointsPayload = JSON.stringify(points.map((p) => ({ x: p.cx, y: p.valY, label: p.label, total: p.total })));
 
   return `
     <div class="chart-svg-wrap" data-chart-points='${pointsPayload}' data-chart-w="${W}" data-chart-h="${H}">
       <svg class="balance-chart-svg" viewBox="0 0 ${W} ${H}" style="width:100%;height:260px;display:block;overflow:visible">
+        <defs>
+          <clipPath id="${clipId}-above"><rect x="0" y="0" width="${W}" height="${zeroY.toFixed(1)}"/></clipPath>
+          <clipPath id="${clipId}-below"><rect x="0" y="${zeroY.toFixed(1)}" width="${W}" height="${(H - zeroY).toFixed(1)}"/></clipPath>
+          <linearGradient id="${clipId}-gpos" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="var(--brl)" stop-opacity="0.4"/>
+            <stop offset="100%" stop-color="var(--brl)" stop-opacity="0"/>
+          </linearGradient>
+          <linearGradient id="${clipId}-gneg" x1="0" y1="1" x2="0" y2="0">
+            <stop offset="0%" stop-color="var(--danger)" stop-opacity="0.4"/>
+            <stop offset="100%" stop-color="var(--danger)" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+
+        ${monthDividers.join("")}
+
         <line x1="${PAD_X}" y1="${zeroY.toFixed(1)}" x2="${W - PAD_X}" y2="${zeroY.toFixed(1)}" stroke="rgba(255,255,255,0.22)" stroke-width="1" stroke-dasharray="3,3"/>
         <text x="${W - PAD_X}" y="${(zeroY - 5).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--text-dim)" font-family="'IBM Plex Mono',monospace">R$ 0</text>
 
-        ${barsSvg}
+        <path d="${areaPath}" fill="url(#${clipId}-gpos)" clip-path="url(#${clipId}-above)"/>
+        <path d="${areaPath}" fill="url(#${clipId}-gneg)" clip-path="url(#${clipId}-below)"/>
+        <path d="${linePath}" fill="none" stroke="var(--brl)" stroke-width="2" clip-path="url(#${clipId}-above)"/>
+        <path d="${linePath}" fill="none" stroke="var(--danger)" stroke-width="2" clip-path="url(#${clipId}-below)"/>
 
-        <text x="${(minBar.cx).toFixed(1)}" y="${minLabelY.toFixed(1)}" text-anchor="${minLabelAnchor}" font-size="10.5" font-weight="600" fill="var(--gold)" font-family="'IBM Plex Mono',monospace">menor: ${fmtBRL.format(minPoint.total)}</text>
+        ${points.map((p) => `<circle cx="${p.cx.toFixed(1)}" cy="${p.valY.toFixed(1)}" r="2.5" fill="${p.total >= 0 ? "var(--brl)" : "var(--danger)"}"/>`).join("")}
+
+        ${monthLabels}
+
+        <circle cx="${minXY.cx.toFixed(1)}" cy="${minXY.valY.toFixed(1)}" r="4" fill="var(--bg)" stroke="var(--gold)" stroke-width="2"/>
+        <text x="${minXY.cx.toFixed(1)}" y="${minLabelY.toFixed(1)}" text-anchor="${minLabelAnchor}" font-size="10.5" font-weight="600" fill="var(--gold)" font-family="'IBM Plex Mono',monospace">menor: ${fmtBRL.format(minPoint.total)}</text>
         ${
           maxIdx !== minIdx
-            ? `<text x="${maxBar.cx.toFixed(1)}" y="${maxLabelY.toFixed(1)}" text-anchor="${maxLabelAnchor}" font-size="9" fill="var(--text-dim)" font-family="'IBM Plex Mono',monospace">maior: ${fmtBRL.format(maxPoint.total)}</text>`
+            ? `<circle cx="${maxXY.cx.toFixed(1)}" cy="${maxXY.valY.toFixed(1)}" r="3" fill="var(--panel)" stroke="var(--text-dim)" stroke-width="1.5"/>
+        <text x="${maxXY.cx.toFixed(1)}" y="${maxLabelY.toFixed(1)}" text-anchor="${maxLabelAnchor}" font-size="9" fill="var(--text-dim)" font-family="'IBM Plex Mono',monospace">maior: ${fmtBRL.format(maxPoint.total)}</text>`
             : ""
         }
 
