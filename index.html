@@ -172,6 +172,8 @@
   .rate-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px 12px; margin-bottom: 12px; }
   .rate-label { font-size: 11.5px; color: var(--text-dim); margin-bottom: 6px; }
   .rate-row { display: flex; align-items: center; gap: 8px; }
+  .rate-meta-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px; }
+  .rate-meta-text { font-size: 10.5px; flex: 1; }
   .rate-text { font-size: 13.5px; color: var(--text-dim); }
 
   .account-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; }
@@ -209,7 +211,7 @@
  *  Sincroniza via Firebase Firestore (tempo real + persistência offline).
  * ---------------------------------------------------------------------- */
 
-const APP_BUILD = "2026-09-08.14"; // mude este valor a cada atualização, para conferir no app se a versão é a mais recente
+const APP_BUILD = "2026-09-11.1"; // mude este valor a cada atualização, para conferir no app se a versão é a mais recente
 
 const firebaseConfig = {
   apiKey: "AIzaSyAx6CD4hD9gD-r9kTL3nfAbE1Qg-w2LyTw",
@@ -292,6 +294,9 @@ let state = {
   showChangePasswordForm: false,
   changePasswordMsg: "",
   changePasswordMsgOk: false,
+  rateUpdatedAt: null,
+  rateFetching: false,
+  rateFetchError: false,
   newItemRepeat: { despesa: "none", receita: "none" },
   newItemAlreadyDone: { despesa: false, receita: false },
   newItemDraft: { despesa: {}, receita: {} },
@@ -385,14 +390,47 @@ function totalsFromBalances(accounts, bal, rate) {
 function applyRemoteData(data) {
   state.accounts = data.accounts || state.accounts;
   state.rate = typeof data.rate === "number" ? data.rate : state.rate;
+  state.rateUpdatedAt = data.rateUpdatedAt || state.rateUpdatedAt;
   state.despesas = data.despesas || state.despesas;
   state.receitas = data.receitas || state.receitas;
   localDraft = {
     accounts: state.accounts,
     rate: state.rate,
+    rateUpdatedAt: state.rateUpdatedAt,
     despesas: state.despesas,
     receitas: state.receitas,
   };
+}
+
+/* ------------------------------ cotação automática PEN → BRL ------------------------------ */
+
+async function fetchExchangeRate(manual) {
+  state.rateFetching = true;
+  if (manual) render();
+  try {
+    const res = await fetch("https://open.er-api.com/v6/latest/PEN");
+    const data = await res.json();
+    const brl = data && data.rates && data.rates.BRL;
+    if (typeof brl !== "number") throw new Error("resposta inesperada da API de câmbio");
+    state.rateFetchError = false;
+    mutate(() => {
+      state.rate = Math.round(brl * 10000) / 10000;
+      state.rateUpdatedAt = new Date().toISOString();
+    });
+  } catch (e) {
+    console.error("Falha ao buscar cotação automática", e);
+    state.rateFetchError = true;
+  } finally {
+    state.rateFetching = false;
+    render();
+  }
+}
+
+function maybeAutoUpdateRate() {
+  const last = state.rateUpdatedAt ? new Date(state.rateUpdatedAt).getTime() : 0;
+  if (Date.now() - last > 6 * 60 * 60 * 1000) {
+    fetchExchangeRate(false);
+  }
 }
 
 function startFirestoreSync() {
@@ -404,12 +442,13 @@ function startFirestoreSync() {
         // documento ainda não existe: se já não vem do cache, cria com os dados iniciais
         if (!snapshot.metadata.fromCache && !firstSnapshotHandled) {
           firstSnapshotHandled = true;
-          localDraft = { accounts: state.accounts, rate: state.rate, despesas: state.despesas, receitas: state.receitas };
+          localDraft = { accounts: state.accounts, rate: state.rate, rateUpdatedAt: state.rateUpdatedAt, despesas: state.despesas, receitas: state.receitas };
           docRef.set(localDraft).catch((e) => console.error("Falha ao criar documento inicial", e));
         }
         state.ready = true;
         state.syncStatus = snapshot.metadata.fromCache ? "offline" : "synced";
         render();
+        maybeAutoUpdateRate();
         return;
       }
       firstSnapshotHandled = true;
@@ -421,6 +460,7 @@ function startFirestoreSync() {
         ? "offline"
         : "synced";
       render();
+      maybeAutoUpdateRate();
     },
     (error) => {
       console.error("Erro de sincronização com o Firestore", error);
@@ -447,6 +487,7 @@ function mutate(fn) {
   localDraft = {
     accounts: state.accounts,
     rate: state.rate,
+    rateUpdatedAt: state.rateUpdatedAt,
     despesas: state.despesas,
     receitas: state.receitas,
   };
@@ -926,14 +967,35 @@ function renderGraficoTab() {
 }
 
 
+function fmtDateTime(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${dd}/${mm} às ${hh}:${mi}`;
+}
+
 function rateCardHtml() {
+  const statusText = state.rateFetching
+    ? "Buscando cotação atual…"
+    : state.rateFetchError
+    ? "Não foi possível buscar a cotação automática agora."
+    : state.rateUpdatedAt
+    ? `Cotação automática atualizada em ${fmtDateTime(state.rateUpdatedAt)}`
+    : "Ainda não buscada automaticamente.";
   return `
     <div class="rate-card">
       <div class="rate-label">Taxa de câmbio</div>
       <div class="rate-row">
         <span class="rate-text">1 S/ (PEN) =</span>
-        <input type="number" step="0.01" style="width:90px;text-align:right" value="${state.rate}" data-action="set-rate"/>
+        <input type="number" step="0.0001" style="width:90px;text-align:right" value="${state.rate}" data-action="set-rate"/>
         <span class="rate-text">R$</span>
+      </div>
+      <div class="rate-meta-row">
+        <span class="rate-meta-text" style="color:${state.rateFetchError ? "var(--danger)" : "var(--text-dim)"}">${statusText}</span>
+        <button class="link-btn" data-action="refresh-rate" ${state.rateFetching ? "disabled" : ""}>Atualizar agora</button>
       </div>
     </div>`;
 }
@@ -1261,6 +1323,9 @@ function bindEvents() {
     rateInput.addEventListener("change", (e) => {
       mutate(() => (state.rate = parseFloat(e.target.value) || 0));
     });
+
+  const refreshRateBtn = shell.querySelector('[data-action="refresh-rate"]');
+  if (refreshRateBtn) refreshRateBtn.addEventListener("click", () => fetchExchangeRate(true));
 
   const fluxoYear = shell.querySelector('[data-action="fluxo-filter-year"]');
   if (fluxoYear) fluxoYear.addEventListener("change", (e) => { state.fluxoFilterYear = e.target.value; render(); });
