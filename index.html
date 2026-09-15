@@ -211,7 +211,7 @@
  *  Sincroniza via Firebase Firestore (tempo real + persistência offline).
  * ---------------------------------------------------------------------- */
 
-const APP_BUILD = "2026-09-11.5"; // mude este valor a cada atualização, para conferir no app se a versão é a mais recente
+const APP_BUILD = "2026-09-11.6"; // mude este valor a cada atualização, para conferir no app se a versão é a mais recente
 
 const firebaseConfig = {
   apiKey: "AIzaSyAx6CD4hD9gD-r9kTL3nfAbE1Qg-w2LyTw",
@@ -296,6 +296,8 @@ let state = {
   rateUpdatedAt: null,
   rateFetching: false,
   rateFetchError: false,
+  transferModal: null,
+  transferError: "",
   newItemRepeat: { despesa: "none", receita: "none" },
   newItemAlreadyDone: { despesa: false, receita: false },
   newItemDraft: { despesa: {}, receita: {} },
@@ -547,6 +549,50 @@ function renderDoneDateModal() {
         <div class="form-actions" style="margin-top:14px">
           <button class="cancel-btn" data-action="cancel-done-date">Cancelar</button>
           <button class="add-btn" data-action="confirm-done-date">${ICONS.check} Confirmar</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderTransferModal() {
+  if (!state.transferModal) return "";
+  const accountIndex = buildAccountIndex(state.accounts);
+  const accountNames = [...state.accounts.BRL, ...state.accounts.PEN].map((a) => a.name);
+  const t = state.transferModal;
+  const originCurrency = accountIndex[t.originAccount]?.currency === "PEN" ? "S/" : "R$";
+  const destCurrency = accountIndex[t.destAccount]?.currency === "PEN" ? "S/" : "R$";
+  return `
+    <div class="modal-overlay" data-action="cancel-transfer">
+      <div class="modal-card" data-action="stop-propagation">
+        <div class="section-label" style="margin-top:0">Transferência entre contas</div>
+
+        <div class="field-row"><div class="field-label">Conta de origem (de onde sai)</div>
+          <select data-action="transfer-set-origin">
+            ${accountNames.map((n) => `<option value="${esc(n)}" ${t.originAccount === n ? "selected" : ""}>${esc(n)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field-row"><div class="field-label">Valor que sai (${originCurrency})</div>
+          <input type="number" step="0.01" id="transfer-out-value" placeholder="0.00" value="${esc(t.outValue)}"/>
+        </div>
+
+        <div class="field-row"><div class="field-label">Conta de destino (para onde vai)</div>
+          <select data-action="transfer-set-dest">
+            ${accountNames.map((n) => `<option value="${esc(n)}" ${t.destAccount === n ? "selected" : ""}>${esc(n)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field-row"><div class="field-label">Valor que entra (${destCurrency})</div>
+          <input type="number" step="0.01" id="transfer-in-value" placeholder="0.00" value="${esc(t.inValue)}"/>
+        </div>
+
+        <div class="field-row"><div class="field-label">Data da transferência</div>
+          <input type="date" id="transfer-date" value="${t.date}"/>
+        </div>
+
+        ${state.transferError ? `<div style="color:var(--danger);font-size:12.5px;margin-top:4px">${esc(state.transferError)}</div>` : ""}
+
+        <div class="form-actions" style="margin-top:14px">
+          <button class="cancel-btn" data-action="cancel-transfer">Cancelar</button>
+          <button class="add-btn" data-action="confirm-transfer">${ICONS.check} Transferir</button>
         </div>
       </div>
     </div>`;
@@ -1153,9 +1199,15 @@ function changePasswordFormHtml() {
 }
 
 function renderContasTab() {
+  const accountNames = [...state.accounts.BRL, ...state.accounts.PEN].map((a) => a.name);
   return `
     ${accountGroupHtml("Contas em Reais (R$)", "BRL", state.accounts.BRL)}
     ${accountGroupHtml("Contas em Soles (PEN)", "PEN", state.accounts.PEN)}
+    ${
+      accountNames.length >= 2
+        ? `<button class="add-btn" data-action="open-transfer-modal" style="width:100%;justify-content:center;margin-bottom:18px">${ICONS.refresh} Transferir entre contas</button>`
+        : ""
+    }
     <div class="section-label">Backup manual</div>
     <div class="backup-row">
       <button class="backup-btn" data-action="export-data">${ICONS.download} Exportar dados</button>
@@ -1223,7 +1275,7 @@ function render() {
   else if (state.tab === "receitas") body = renderLancamentosTab("receita");
   else if (state.tab === "contas") body = renderContasTab();
 
-  shell.innerHTML = `${renderHeader()}<main>${body}</main>${renderTabBar()}${renderDoneDateModal()}`;
+  shell.innerHTML = `${renderHeader()}<main>${body}</main>${renderTabBar()}${renderDoneDateModal()}${renderTransferModal()}`;
   bindEvents();
 
   const newMain = shell.querySelector("main");
@@ -1474,6 +1526,112 @@ function bindEvents() {
       });
     });
 
+  function captureTransferDraft() {
+    if (!state.transferModal) return;
+    const outEl = document.getElementById("transfer-out-value");
+    const inEl = document.getElementById("transfer-in-value");
+    const dateEl = document.getElementById("transfer-date");
+    if (outEl) state.transferModal.outValue = outEl.value;
+    if (inEl) state.transferModal.inValue = inEl.value;
+    if (dateEl) state.transferModal.date = dateEl.value;
+  }
+
+  const openTransferBtn = shell.querySelector('[data-action="open-transfer-modal"]');
+  if (openTransferBtn)
+    openTransferBtn.addEventListener("click", () => {
+      const accountNames = [...state.accounts.BRL, ...state.accounts.PEN].map((a) => a.name);
+      state.transferModal = {
+        originAccount: accountNames[0] || "",
+        destAccount: accountNames[1] || accountNames[0] || "",
+        outValue: "",
+        inValue: "",
+        date: todayStr(),
+      };
+      state.transferError = "";
+      render();
+    });
+
+  shell.querySelectorAll('[data-action="cancel-transfer"]').forEach((el) =>
+    el.addEventListener("click", () => {
+      state.transferModal = null;
+      state.transferError = "";
+      render();
+    })
+  );
+
+  const transferOriginSel = shell.querySelector('[data-action="transfer-set-origin"]');
+  if (transferOriginSel)
+    transferOriginSel.addEventListener("change", (e) => {
+      captureTransferDraft();
+      state.transferModal.originAccount = e.target.value;
+      render();
+    });
+
+  const transferDestSel = shell.querySelector('[data-action="transfer-set-dest"]');
+  if (transferDestSel)
+    transferDestSel.addEventListener("change", (e) => {
+      captureTransferDraft();
+      state.transferModal.destAccount = e.target.value;
+      render();
+    });
+
+  const confirmTransferBtn = shell.querySelector('[data-action="confirm-transfer"]');
+  if (confirmTransferBtn)
+    confirmTransferBtn.addEventListener("click", () => {
+      const t = state.transferModal;
+      const originAccount = t.originAccount;
+      const destAccount = t.destAccount;
+      const outValue = parseFloat(document.getElementById("transfer-out-value").value) || 0;
+      const inValue = parseFloat(document.getElementById("transfer-in-value").value) || 0;
+      const date = document.getElementById("transfer-date").value || todayStr();
+
+      captureTransferDraft();
+
+      if (!originAccount || !destAccount) {
+        state.transferError = "Selecione as duas contas.";
+        render();
+        return;
+      }
+      if (originAccount === destAccount) {
+        state.transferError = "A conta de origem e destino precisam ser diferentes.";
+        render();
+        return;
+      }
+      if (outValue <= 0 || inValue <= 0) {
+        state.transferError = "Informe os dois valores (maiores que zero).";
+        render();
+        return;
+      }
+
+      mutate(() => {
+        const transferId = uid("transfer");
+        state.despesas.push({
+          id: uid("despesa"),
+          account: originAccount,
+          description: `Transferência para ${destAccount}`,
+          dueDate: date,
+          value: outValue,
+          done: true,
+          doneDate: date,
+          isTransfer: true,
+          transferId,
+        });
+        state.receitas.push({
+          id: uid("receita"),
+          account: destAccount,
+          description: `Transferência de ${originAccount}`,
+          dueDate: date,
+          value: inValue,
+          done: true,
+          doneDate: date,
+          isTransfer: true,
+          transferId,
+        });
+        state.transferModal = null;
+        state.transferError = "";
+      });
+    });
+
   shell.querySelectorAll("[data-edit]").forEach((input) =>
     input.addEventListener("change", (e) => {
       const { edit, kind, id } = input.dataset;
@@ -1489,9 +1647,17 @@ function bindEvents() {
   shell.querySelectorAll('[data-action="delete-item"]').forEach((btn) =>
     btn.addEventListener("click", () => {
       const { kind, id } = btn.dataset;
+      const list = kind === "despesa" ? state.despesas : state.receitas;
+      const item = list.find((i) => i.id === id);
+      const transferId = item && item.isTransfer ? item.transferId : null;
       mutate(() => {
         if (kind === "despesa") state.despesas = state.despesas.filter((i) => i.id !== id);
         else state.receitas = state.receitas.filter((i) => i.id !== id);
+        if (transferId) {
+          // apaga a outra ponta da transferência também, para não deixar órfã
+          state.despesas = state.despesas.filter((i) => i.transferId !== transferId);
+          state.receitas = state.receitas.filter((i) => i.transferId !== transferId);
+        }
       });
     })
   );
