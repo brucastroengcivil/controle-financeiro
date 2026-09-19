@@ -342,7 +342,7 @@
  * ---------------------------------------------------------------------- */
 
 const APP_VERSION = "1.3"; // versão curta mostrada ao lado do título — suba junto com o APP_BUILD abaixo
-const APP_BUILD = "2026-09-19.5"; // mude este valor a cada atualização, para conferir no app se a versão é a mais recente
+const APP_BUILD = "2026-09-19.6"; // mude este valor a cada atualização, para conferir no app se a versão é a mais recente
 
 const firebaseConfig = {
   apiKey: "AIzaSyAx6CD4hD9gD-r9kTL3nfAbE1Qg-w2LyTw",
@@ -387,12 +387,8 @@ const ICONS = {
 };
 
 const SEED_ACCOUNTS = {
-  BRL: [
-    { id: "conta-brl-1", name: "Conta 1", initial: 0, initialDate: new Date().toISOString().slice(0, 10) },
-  ],
-  PEN: [
-    { id: "conta-pen-1", name: "Conta 1", initial: 0, initialDate: new Date().toISOString().slice(0, 10) },
-  ],
+  BRL: [],
+  PEN: [],
 };
 const SEED_RATE = 0.75;
 const SEED_DESPESAS = [];
@@ -767,41 +763,45 @@ function maybeAutoUpdateRate() {
 /* migra usuários antigos (documento único) para o novo modelo, ou semeia um usuário novo */
 async function migrateIfNeeded() {
   const snap = await docRef.get();
-  if (!snap.exists) {
+  const data = snap.exists ? snap.data() || {} : null;
+
+  if (data) {
+    const hasLegacy = Array.isArray(data.despesas) || Array.isArray(data.receitas) || (data.accounts && typeof data.accounts === "object");
+    if (!hasLegacy) return; // usuário já está no modelo novo: nada a fazer
+
     const ops = [];
-    state.despesas.forEach((d) => ops.push({ ref: despesaDocRef(d.id), type: "set", data: d }));
-    state.receitas.forEach((r) => ops.push({ ref: receitaDocRef(r.id), type: "set", data: r }));
-    [...state.accounts.BRL.map((a) => ({ ...a, currency: "BRL" })), ...state.accounts.PEN.map((a) => ({ ...a, currency: "PEN" }))].forEach((a) =>
+    (data.despesas || []).forEach((d) => ops.push({ ref: despesaDocRef(d.id), type: "set", data: d }));
+    (data.receitas || []).forEach((r) => ops.push({ ref: receitaDocRef(r.id), type: "set", data: r }));
+    const legacyAccounts = data.accounts || {};
+    [...(legacyAccounts.BRL || []).map((a) => ({ ...a, currency: "BRL" })), ...(legacyAccounts.PEN || []).map((a) => ({ ...a, currency: "PEN" }))].forEach((a) =>
       ops.push({ ref: contaDocRef(a.id), type: "set", data: a })
     );
-    ops.push({ ref: docRef, type: "set", data: { rate: state.rate, rateUpdatedAt: null } });
+    ops.push({
+      ref: docRef,
+      type: "set",
+      data: {
+        rate: data.rate,
+        rateUpdatedAt: data.rateUpdatedAt || null,
+        despesas: firebase.firestore.FieldValue.delete(),
+        receitas: firebase.firestore.FieldValue.delete(),
+        accounts: firebase.firestore.FieldValue.delete(),
+      },
+      merge: true,
+    });
     await commitOpsChunked(ops);
     return;
   }
-  const data = snap.data() || {};
-  const hasLegacy = Array.isArray(data.despesas) || Array.isArray(data.receitas) || (data.accounts && typeof data.accounts === "object");
-  if (!hasLegacy) return;
 
-  const ops = [];
-  (data.despesas || []).forEach((d) => ops.push({ ref: despesaDocRef(d.id), type: "set", data: d }));
-  (data.receitas || []).forEach((r) => ops.push({ ref: receitaDocRef(r.id), type: "set", data: r }));
-  const legacyAccounts = data.accounts || {};
-  [...(legacyAccounts.BRL || []).map((a) => ({ ...a, currency: "BRL" })), ...(legacyAccounts.PEN || []).map((a) => ({ ...a, currency: "PEN" }))].forEach((a) =>
-    ops.push({ ref: contaDocRef(a.id), type: "set", data: a })
-  );
-  ops.push({
-    ref: docRef,
-    type: "set",
-    data: {
-      rate: data.rate,
-      rateUpdatedAt: data.rateUpdatedAt || null,
-      despesas: firebase.firestore.FieldValue.delete(),
-      receitas: firebase.firestore.FieldValue.delete(),
-      accounts: firebase.firestore.FieldValue.delete(),
-    },
-    merge: true,
-  });
-  await commitOpsChunked(ops);
+  // o documento raiz "não existe" segundo o get() — mas isso pode ser um falso negativo
+  // (cache/rede). Antes de semear dados, confirma de verdade olhando as subcoleções:
+  // se qualquer uma já tiver registros, este NÃO é um usuário novo — não cria nada.
+  const [existingContas, existingDespesas, existingReceitas] = await Promise.all([contasColRef.get(), despesasColRef.get(), receitasColRef.get()]);
+  const alreadyHasData = existingContas.size > 0 || existingDespesas.size > 0 || existingReceitas.size > 0;
+  if (alreadyHasData) return;
+
+  // usuário genuinamente novo: só grava a taxa de câmbio padrão. Nenhuma conta é criada
+  // automaticamente — quem decide quais contas existem é a pessoa, na aba Contas.
+  await docRef.set({ rate: state.rate, rateUpdatedAt: null });
 }
 
 function checkAllPartsLoaded() {
@@ -1821,7 +1821,7 @@ function accountGroupHtml(title, currency, accounts) {
         </div>`;
         })
         .join("")}
-      ${accounts.length < 4 ? `<button class="add-account-btn" data-action="add-account" data-currency="${currency}">${ICONS.plus} Adicionar conta</button>` : ""}
+      <button class="add-account-btn" data-action="add-account" data-currency="${currency}">${ICONS.plus} Adicionar conta</button>
     </div>`;
 }
 
