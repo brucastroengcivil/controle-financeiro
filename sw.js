@@ -8,7 +8,7 @@
  * o service worker mudou e a limpar o cache antigo automaticamente.
  */
 
-const CACHE_NAME = "controle-financeiro-shell-v4";
+const CACHE_NAME = "controle-financeiro-shell-v5";
 const APP_SHELL = ["./manifest.json", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", (event) => {
