@@ -6,6 +6,7 @@
 <title>Controle Financeiro</title>
 <link rel="manifest" href="manifest.json" />
 <meta name="theme-color" content="#ffffff" />
+<meta name="app-build" content="2026-09-19.7" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="Financeiro" />
@@ -77,6 +78,16 @@
     background: var(--panel);
     flex-shrink: 0;
   }
+  .update-banner {
+    display: flex; align-items: center; gap: 10px; background: var(--gold-dim); color: var(--text);
+    padding: 9px 16px; font-size: 12.5px; flex-shrink: 0; border-bottom: 1px solid var(--border);
+  }
+  .update-banner span { flex: 1; }
+  .update-banner button[data-action="force-update"] {
+    background: var(--gold); color: #fff; border: none; border-radius: 7px; padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;
+  }
+  body.theme-dark .update-banner button[data-action="force-update"] { color: #1a1406; }
+  .update-banner-dismiss { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 13px; padding: 4px; }
   .header-title { font-family: 'Inter', sans-serif; font-size: 19px; font-weight: 800; letter-spacing: -0.02em; display: flex; align-items: center; gap: 9px; }
   .header-version { font-size: 10px; font-weight: 600; color: var(--text-dim); margin-left: 2px; }
   .header-logo {
@@ -341,8 +352,8 @@
  *  Sincroniza via Firebase Firestore (tempo real + persistência offline).
  * ---------------------------------------------------------------------- */
 
-const APP_VERSION = "1.3"; // versão curta mostrada ao lado do título — suba junto com o APP_BUILD abaixo
-const APP_BUILD = "2026-09-19.6"; // mude este valor a cada atualização, para conferir no app se a versão é a mais recente
+const APP_VERSION = "1.4"; // versão curta mostrada ao lado do título — suba junto com o app-build lá no <head>
+const APP_BUILD = document.querySelector('meta[name="app-build"]')?.content || "desconhecida";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAx6CD4hD9gD-r9kTL3nfAbE1Qg-w2LyTw",
@@ -449,6 +460,7 @@ let state = {
   newItemDraft: { despesa: {}, receita: {} },
   themePreference: getStoredTheme(),
   showFabMenu: false,
+  newerBuildAvailable: null,
   openItems: new Set(),
   fluxoCollapsedDates: new Set(),
   openAccounts: new Set(),
@@ -1865,7 +1877,7 @@ function render() {
   else if (state.tab === "receitas") body = renderLancamentosTab("receita");
   else if (state.tab === "contas") body = renderContasTab();
 
-  shell.innerHTML = `${renderHeader()}<main>${body}</main>${renderTabBar()}${renderFab()}${renderDoneDateModal()}${renderTransferModal()}`;
+  shell.innerHTML = `${renderHeader()}${renderUpdateBanner()}<main>${body}</main>${renderTabBar()}${renderFab()}${renderDoneDateModal()}${renderTransferModal()}`;
   bindEvents();
   adjustStickyNavOffset();
 
@@ -1946,6 +1958,16 @@ function bindEvents() {
 
   const refreshRateBtn = shell.querySelector('[data-action="refresh-rate"]');
   if (refreshRateBtn) refreshRateBtn.addEventListener("click", () => fetchExchangeRate(true));
+
+  const forceUpdateBtn = shell.querySelector('[data-action="force-update"]');
+  if (forceUpdateBtn) forceUpdateBtn.addEventListener("click", forceUpdateNow);
+
+  const dismissUpdateBtn = shell.querySelector('[data-action="dismiss-update-banner"]');
+  if (dismissUpdateBtn)
+    dismissUpdateBtn.addEventListener("click", () => {
+      state.newerBuildAvailable = null;
+      render();
+    });
 
   const fluxoYear = shell.querySelector('[data-action="fluxo-filter-year"]');
   if (fluxoYear) fluxoYear.addEventListener("change", (e) => { state.fluxoFilterYear = e.target.value; render(); });
@@ -2665,6 +2687,48 @@ auth.onAuthStateChanged((user) => {
   }
 });
 
+/* ------------------------------ checagem de versão nova ------------------------------ */
+
+async function checkForNewerVersion() {
+  try {
+    const res = await fetch(location.pathname + "?_v=" + Date.now(), { cache: "no-store" });
+    const text = await res.text();
+    const match = text.match(/<meta name="app-build" content="([^"]+)"/);
+    if (match && match[1] && match[1] !== APP_BUILD) {
+      state.newerBuildAvailable = match[1];
+      render();
+    }
+  } catch (e) {
+    // offline ou bloqueado: silenciosamente não faz nada, não incomoda o usuário
+  }
+}
+
+async function forceUpdateNow() {
+  try {
+    if ("serviceWorker" in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+    }
+    if (window.caches) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch (e) {
+    console.warn("Falha ao limpar cache antes de atualizar", e);
+  }
+  location.reload();
+}
+
+function renderUpdateBanner() {
+  if (!state.newerBuildAvailable) return "";
+  return `
+    <div class="update-banner">
+      <span>Uma versão mais nova do app está disponível.</span>
+      <button data-action="force-update">Atualizar agora</button>
+      <button class="update-banner-dismiss" data-action="dismiss-update-banner" aria-label="Fechar">✕</button>
+    </div>`;
+}
+
 /* ------------------------------ boot ------------------------------ */
 
 if ("serviceWorker" in navigator) {
@@ -2672,6 +2736,14 @@ if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("sw.js").catch((e) => console.warn("Service worker não registrado", e));
   });
 }
+
+// verifica se há uma versão mais nova toda vez que o app é aberto
+window.addEventListener("load", () => {
+  setTimeout(checkForNewerVersion, 1500);
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") checkForNewerVersion();
+});
 </script>
 </body>
 </html>
