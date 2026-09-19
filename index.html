@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
 <title>Controle Financeiro</title>
 <link rel="manifest" href="manifest.json" />
-<meta name="theme-color" content="#12161d" />
+<meta name="theme-color" content="#ffffff" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="Financeiro" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" href="icon-192.png" />
@@ -15,24 +15,26 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
   :root {
-    --bg: #12161d;
-    --panel: #1a2029;
-    --panel-2: #202836;
-    --border: rgba(255,255,255,0.09);
-    --text: #ece8de;
-    --text-dim: #8d94a3;
-    --brl: #55b28d;
-    --pen: #e2984f;
-    --danger: #e0637a;
-    --gold: #cba15e;
+    --bg: #f3f4f8;
+    --panel: #ffffff;
+    --panel-2: #f4f5f9;
+    --border: #e6e8f0;
+    --text: #1a1d2b;
+    --text-dim: #6b7280;
+    --brl: #16a34a;
+    --pen: #d97706;
+    --danger: #dc2626;
+    --gold: #4f46e5;
+    --gold-dim: #eef0fd;
+    --shadow: 0 1px 2px rgba(20,22,40,0.04), 0 4px 14px rgba(20,22,40,0.05);
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: var(--bg); }
   body { font-family: 'Inter', sans-serif; color: var(--text); }
   input, select, button, textarea { font-family: 'Inter', sans-serif; }
-  input[type=date]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
+  input[type=date]::-webkit-calendar-picker-indicator { filter: invert(0.45); }
   input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:focus {
     -webkit-text-fill-color: var(--text);
     -webkit-box-shadow: 0 0 0px 1000px var(--panel-2) inset;
@@ -52,21 +54,26 @@
     flex-direction: column;
     position: relative;
     overflow: hidden;
+    background: var(--bg);
   }
   header {
     display: flex; justify-content: space-between; align-items: flex-end;
     padding: 22px 18px 14px; padding-top: calc(22px + env(safe-area-inset-top));
     border-bottom: 1px solid var(--border);
-    background: var(--bg);
+    background: var(--panel);
     flex-shrink: 0;
   }
-  .header-title { font-family: 'Fraunces', serif; font-size: 21px; font-weight: 600; letter-spacing: -0.01em; }
-  .header-subtitle { font-size: 12px; color: var(--text-dim); margin-top: 2px; display: flex; align-items: center; }
+  .header-title { font-family: 'Inter', sans-serif; font-size: 19px; font-weight: 800; letter-spacing: -0.02em; display: flex; align-items: center; gap: 9px; }
+  .header-logo {
+    width: 30px; height: 30px; border-radius: 9px; background: var(--gold); color: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0;
+  }
+  .header-subtitle { font-size: 12px; color: var(--text-dim); margin-top: 2px; display: flex; align-items: center; padding-left: 39px; }
   .sync-dot-wrap { display: inline-flex; align-items: center; gap: 5px; margin-left: 8px; font-size: 10.5px; }
   .sync-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
   .header-right { display: flex; align-items: center; gap: 8px; }
   .refresh-btn {
-    background: var(--panel); border: 1px solid var(--border); color: var(--text-dim);
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text-dim);
     border-radius: 8px; width: 30px; height: 30px; display: flex; align-items: center;
     justify-content: center; cursor: pointer;
   }
@@ -74,43 +81,69 @@
   .refresh-btn.loading svg { animation: spin 0.8s linear infinite; }
   .header-badge {
     font-family: 'IBM Plex Mono', monospace; font-size: 13px; display: flex; gap: 6px;
-    background: var(--panel); border: 1px solid var(--border); border-radius: 20px; padding: 5px 12px;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 20px; padding: 5px 12px;
   }
   main { flex: 1; min-height: 0; padding: 16px 16px 20px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 
-  .section-label { font-size: 12.5px; color: var(--text-dim); margin: 18px 2px 8px; font-weight: 500; }
+  .section-label { font-size: 12.5px; color: var(--text-dim); margin: 18px 2px 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; }
 
-  .segmented { display: flex; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 3px; gap: 3px; }
+  .segmented { display: flex; background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 3px; gap: 3px; }
   .segmented button {
     flex: 1; padding: 8px 0; border: none; border-radius: 7px; background: transparent;
     color: var(--text-dim); font-size: 13.5px; font-weight: 500; cursor: pointer;
   }
-  .segmented button.active { background: var(--panel-2); color: var(--text); }
+  .segmented button.active { background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
 
-  .balance-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .balance-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 13px; }
+  .balance-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .balance-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px 15px; box-shadow: var(--shadow); }
   .balance-card-name { font-size: 12px; color: var(--text-dim); margin-bottom: 6px; }
-  .balance-card-value { font-family: 'IBM Plex Mono', monospace; font-size: 15.5px; font-weight: 500; }
+  .balance-card-value { font-family: 'IBM Plex Mono', monospace; font-size: 16px; font-weight: 600; }
+
+  .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .kpi-card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 16px; box-shadow: var(--shadow); }
+  .kpi-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+  .kpi-label { font-size: 10.5px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+  .kpi-icon { width: 30px; height: 30px; border-radius: 9px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .kpi-icon svg { width: 15px; height: 15px; }
+  .kpi-value { font-family: 'IBM Plex Mono', monospace; font-size: 19px; font-weight: 700; }
+  .kpi-sub { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+  .kpi-delta { font-weight: 700; padding: 1px 5px; border-radius: 5px; font-size: 10.5px; }
+  .kpi-delta.up { color: var(--brl); background: #ecfdf3; }
+  .kpi-delta.down { color: var(--danger); background: #fef2f2; }
+
+  .dashboard-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
 
   .total-strip { display: flex; justify-content: space-between; background: var(--panel-2); border: 1px solid var(--border);
-    border-radius: 10px; padding: 12px 14px; margin-top: 10px; gap: 6px; }
+    border-radius: 12px; padding: 12px 14px; margin-top: 10px; gap: 6px; }
   .total-strip-label { display: block; font-size: 10.5px; color: var(--text-dim); margin-bottom: 3px; }
   .total-strip-value { font-family: 'IBM Plex Mono', monospace; font-size: 13.5px; font-weight: 600; }
 
-  .chart-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px 10px; margin-top: 4px; }
+  .chart-card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 16px 12px 12px; margin-top: 4px; box-shadow: var(--shadow); }
+  .chart-card-title { font-size: 14px; font-weight: 700; margin-bottom: 2px; }
+  .chart-card-sub { font-size: 11.5px; color: var(--text-dim); margin-bottom: 10px; }
   .chart-svg-wrap { position: relative; width: 100%; }
   .chart-svg-wrap svg { touch-action: none; }
   .chart-tooltip {
-    position: absolute; pointer-events: none; background: var(--panel-2); border: 1px solid var(--gold);
+    position: absolute; pointer-events: none; background: var(--text); border: none;
     border-radius: 6px; padding: 5px 9px; font-size: 11px; font-family: 'IBM Plex Mono', monospace;
-    color: var(--text); white-space: nowrap; transform: translate(-50%, -125%); z-index: 5;
+    color: #fff; white-space: nowrap; transform: translate(-50%, -125%); z-index: 5; box-shadow: var(--shadow);
   }
-  .extreme-card { background: var(--panel-2); border: 1.5px solid var(--border); border-radius: 12px; padding: 14px 16px; }
-  .extreme-card-value { font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 600; }
+  .extreme-card { background: var(--panel-2); border: 1.5px solid var(--border); border-radius: 14px; padding: 14px 16px; }
+  .extreme-card-value { font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 700; }
   .extreme-card-date { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
 
+  .donut-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .donut-legend { flex: 1; min-width: 160px; display: flex; flex-direction: column; gap: 8px; }
+  .donut-legend-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+  .donut-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .donut-legend-name { flex: 1; color: var(--text); }
+  .donut-legend-value { font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 12px; }
+  .donut-legend-pct { color: var(--text-dim); font-size: 11px; width: 34px; text-align: right; }
+  .donut-center-value { font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 15px; }
+  .donut-center-label { font-size: 9.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.03em; }
+
   .ledger-list { display: flex; flex-direction: column; gap: 6px; }
-  .ledger-group { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .ledger-group { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); }
   .ledger-group-header {
     display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: none;
     padding: 10px 12px; cursor: pointer; color: var(--text); text-align: left;
@@ -118,38 +151,39 @@
   .ledger-group-date { font-size: 13px; font-weight: 600; }
   .ledger-group-count { font-size: 11px; color: var(--text-dim); flex: 1; }
   .ledger-group-items { border-top: 1px solid var(--border); display: flex; flex-direction: column; }
-  .ledger-group-items .ledger-row { border-radius: 0; border: none; border-bottom: 1px solid var(--border); }
+  .ledger-group-items .ledger-row { border-radius: 0; border: none; border-bottom: 1px solid var(--border); box-shadow: none; }
   .ledger-group-items .ledger-row:last-child { border-bottom: none; }
   .expand-collapse-row { display: flex; gap: 14px; margin: 8px 2px 6px; }
-  .link-btn { background: none; border: none; color: var(--gold); font-size: 11.5px; padding: 0; cursor: pointer; }
-  .ledger-row { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .link-btn { background: none; border: none; color: var(--gold); font-size: 11.5px; padding: 0; cursor: pointer; font-weight: 600; }
+  .ledger-row { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; box-shadow: var(--shadow); }
   .ledger-top-line { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-  .ledger-desc { font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+  .ledger-desc { font-size: 13.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
   .ledger-meta { font-size: 11px; font-family: 'IBM Plex Mono', monospace; color: var(--text-dim); margin-top: 4px; }
-  .ledger-value { font-family: 'IBM Plex Mono', monospace; font-size: 13.5px; font-weight: 500; white-space: nowrap; flex-shrink: 0; }
+  .ledger-value { font-family: 'IBM Plex Mono', monospace; font-size: 13.5px; font-weight: 600; white-space: nowrap; flex-shrink: 0; }
 
-  .empty-state { color: var(--text-dim); font-size: 13px; padding: 26px 10px; text-align: center; border: 1px dashed var(--border); border-radius: 10px; }
+  .empty-state { color: var(--text-dim); font-size: 13px; padding: 26px 10px; text-align: center; border: 1px dashed var(--border); border-radius: 12px; }
 
   .filter-row { display: flex; gap: 8px; margin-bottom: 4px; }
   .search-input {
-    background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 8px;
+    background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 9px;
     padding: 9px 12px; font-size: 16px; width: 100%; margin-bottom: 8px;
   }
   .search-input::placeholder { color: var(--text-dim); }
   select {
-    background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 8px;
+    background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 9px;
     padding: 8px 8px; font-size: 16px; flex: 1; min-width: 0;
   }
   .add-btn {
-    display: flex; align-items: center; gap: 5px; background: var(--gold); color: #1a1406; border: none;
-    border-radius: 8px; padding: 8px 12px; font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap;
+    display: flex; align-items: center; gap: 5px; background: var(--gold); color: #fff; border: none;
+    border-radius: 9px; padding: 8px 12px; font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap;
+    box-shadow: 0 1px 2px rgba(79,70,229,0.25);
   }
-  .cancel-btn { background: transparent; color: var(--text-dim); border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; font-size: 12.5px; cursor: pointer; }
+  .cancel-btn { background: var(--panel); color: var(--text-dim); border: 1px solid var(--border); border-radius: 9px; padding: 8px 14px; font-size: 12.5px; cursor: pointer; }
 
-  .form-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin: 10px 0 4px; display: flex; flex-direction: column; gap: 10px; }
+  .form-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px; margin: 10px 0 4px; display: flex; flex-direction: column; gap: 10px; box-shadow: var(--shadow); }
   .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 
-  .item-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .item-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); }
   .item-top { display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer; }
   .item-mid { flex: 1; min-width: 0; }
   .check-btn { background: none; border: none; color: var(--text-dim); padding: 0; display: flex; cursor: pointer; }
@@ -162,45 +196,102 @@
   .field-row { display: flex; flex-direction: column; gap: 4px; }
   .field-label { font-size: 11.5px; color: var(--text-dim); }
   input[type=text], input[type=number], input[type=date], input[type=password] {
-    background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 7px;
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px;
     padding: 8px 10px; font-size: 16px; width: 100%;
   }
   .delete-btn { display: flex; align-items: center; gap: 6px; background: none; border: none; color: var(--danger);
     font-size: 12.5px; padding: 4px 0; cursor: pointer; align-self: flex-start; }
   .delete-btn svg { width: 14px; height: 14px; }
 
-  .rate-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px 12px; margin-bottom: 12px; }
+  .rate-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 10px 14px 12px; margin-bottom: 12px; box-shadow: var(--shadow); }
   .rate-label { font-size: 11.5px; color: var(--text-dim); margin-bottom: 6px; }
   .rate-row { display: flex; align-items: center; gap: 8px; }
   .rate-meta-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px; }
   .rate-meta-text { font-size: 10.5px; flex: 1; }
   .rate-text { font-size: 13.5px; color: var(--text-dim); }
 
-  .account-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; }
+  .account-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; box-shadow: var(--shadow); }
   .add-account-btn { display: flex; align-items: center; gap: 6px; background: none; border: 1px dashed var(--border); color: var(--text-dim);
     border-radius: 10px; padding: 10px 0; justify-content: center; font-size: 12.5px; width: 100%; cursor: pointer; }
   .add-account-btn svg { width: 15px; height: 15px; }
 
-  .backup-row { display: flex; gap: 8px; margin-top: 4px; }
-  .backup-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; background: var(--panel-2);
-    border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 10px 0; font-size: 12.5px; cursor: pointer; }
+  .backup-row { display: flex; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
+  .backup-btn { flex: 1; min-width: 130px; display: flex; align-items: center; justify-content: center; gap: 6px; background: var(--panel);
+    border: 1px solid var(--border); color: var(--text); border-radius: 9px; padding: 10px 0; font-size: 12.5px; cursor: pointer; box-shadow: var(--shadow); }
 
-  .login-wrap { display: flex; align-items: center; justify-content: center; min-height: 100%; padding: 20px; padding-top: calc(20px + env(safe-area-inset-top)); }
+  .login-wrap {
+    display: flex; align-items: center; justify-content: center; min-height: 100%; padding: 20px;
+    padding-top: calc(20px + env(safe-area-inset-top));
+  }
+  body.login-mode {
+    background: radial-gradient(ellipse at 30% 20%, #2f2f6b 0%, #14162e 45%, #0c0d1f 100%);
+  }
+  body.login-mode #app-shell { max-width: none; background: transparent; }
   .modal-overlay {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center;
+    position: fixed; inset: 0; background: rgba(20,22,35,0.45); display: flex; align-items: center; justify-content: center;
     padding: 20px; z-index: 50;
   }
-  .modal-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 18px; width: 100%; max-width: 340px; }
-  .login-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 26px 22px; width: 100%; max-width: 340px; }
+  .modal-card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 18px; width: 100%; max-width: 340px; box-shadow: 0 12px 40px rgba(20,22,40,0.18); }
+  .login-card { background: var(--panel); border: 1px solid var(--border); border-radius: 20px; padding: 32px 26px; width: 100%; max-width: 360px; box-shadow: 0 24px 60px rgba(0,0,0,0.35); text-align: center; }
+  .login-logo {
+    width: 64px; height: 64px; border-radius: 50%; background: var(--gold); color: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 800;
+    margin: 0 auto 18px; box-shadow: 0 8px 20px rgba(79,70,229,0.35);
+  }
+  .login-title { font-size: 22px; font-weight: 800; letter-spacing: -0.01em; }
+  .login-subtitle { font-size: 13px; color: var(--text-dim); margin-top: 4px; margin-bottom: 22px; }
+  .login-field-row { text-align: left; margin-bottom: 14px; }
+  .login-field-row .field-label { font-weight: 600; color: var(--text); font-size: 12.5px; margin-bottom: 6px; }
+  .password-wrap { position: relative; }
+  .password-wrap input { padding-right: 40px; }
+  .password-toggle {
+    position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none;
+    color: var(--text-dim); cursor: pointer; display: flex; padding: 4px;
+  }
+  .password-toggle svg { width: 18px; height: 18px; }
+  .login-forgot-link { display: block; text-align: center; color: var(--gold); font-size: 13px; font-weight: 600; margin-top: 16px; background: none; border: none; cursor: pointer; width: 100%; }
 
   nav.tab-bar {
     display: flex; justify-content: space-around; background: var(--panel); border-top: 1px solid var(--border);
     padding: 8px 4px calc(8px + env(safe-area-inset-bottom)); flex-shrink: 0;
   }
-  .tab-btn { display: flex; flex-direction: column; align-items: center; gap: 3px; background: none; border: none; cursor: pointer; padding: 4px 10px; color: var(--text-dim); }
+  .tab-btn { display: flex; flex-direction: column; align-items: center; gap: 3px; background: none; border: none; cursor: pointer; padding: 4px 10px; color: var(--text-dim); border-radius: 8px; }
   .tab-btn.active { color: var(--gold); }
   .tab-btn svg { width: 20px; height: 20px; }
   .tab-btn-label { font-size: 10.5px; }
+
+  /* ---------- responsivo: tablet e desktop ---------- */
+  @media (min-width: 700px) {
+    #app-shell { max-width: 760px; }
+    header { padding-left: 26px; padding-right: 26px; }
+    main { padding: 22px 26px 26px; }
+    .kpi-grid { grid-template-columns: repeat(4, 1fr); }
+    .balance-grid { grid-template-columns: repeat(3, 1fr); }
+  }
+
+  @media (min-width: 1000px) {
+    #app-shell { max-width: 1180px; height: auto; min-height: 100vh; min-height: 100dvh; overflow: visible; }
+    body { overflow-y: auto; }
+    main { overflow-y: visible; padding: 26px 32px 40px; }
+    header { padding-left: 32px; padding-right: 32px; }
+
+    /* barra de navegação some embaixo e vira uma barra horizontal no topo */
+    nav.tab-bar {
+      order: -1;
+      flex-direction: row;
+      justify-content: flex-start;
+      gap: 4px;
+      border-top: none;
+      border-bottom: 1px solid var(--border);
+      padding: 10px 32px;
+    }
+    .tab-btn { flex-direction: row; padding: 8px 14px; }
+    .tab-btn.active { background: var(--gold-dim); }
+    .tab-btn-label { font-size: 13px; }
+
+    .dashboard-grid { grid-template-columns: 1.3fr 1fr; align-items: start; }
+    .balance-grid { grid-template-columns: repeat(5, 1fr); }
+  }
 </style>
 </head>
 <body>
@@ -211,7 +302,7 @@
  *  Sincroniza via Firebase Firestore (tempo real + persistência offline).
  * ---------------------------------------------------------------------- */
 
-const APP_BUILD = "2026-09-11.6"; // mude este valor a cada atualização, para conferir no app se a versão é a mais recente
+const APP_BUILD = "2026-09-19.3"; // mude este valor a cada atualização, para conferir no app se a versão é a mais recente
 
 const firebaseConfig = {
   apiKey: "AIzaSyAx6CD4hD9gD-r9kTL3nfAbE1Qg-w2LyTw",
@@ -237,6 +328,8 @@ let docRef = null; // definido após o login, com base no UID do usuário
 let currentUser = null;
 
 const ICONS = {
+  eye: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/><circle cx="12" cy="12" r="3"/></svg>',
+  eyeOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a19.4 19.4 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a19.5 19.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>',
   wallet: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>',
   down: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg>',
   up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>',
@@ -310,10 +403,6 @@ let state = {
   receitas: SEED_RECEITAS,
 };
 
-let localDraft = null; // working copy of the synced data, mutated locally
-let saveTimer = null;
-let firstSnapshotHandled = false;
-
 /* ------------------------------ helpers ------------------------------ */
 
 const uid = (p) => `${p}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -341,6 +430,159 @@ function generateRecurringDates(start, end, freq) {
   }
   return dates;
 }
+
+/* ------------------------------ CSV: exportar / importar ------------------------------ */
+
+function csvEscape(value) {
+  const s = String(value ?? "");
+  if (/[",\n;]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function buildCsvExport() {
+  const accountIndex = buildAccountIndex(state.accounts);
+  const header = ["Tipo", "Descrição", "Conta", "Moeda", "Valor", "Data", "Status", "DataEfetivacao", "SaldoInicial", "DataInicial", "Taxa"];
+  const rows = [header];
+
+  [...state.accounts.BRL, ...state.accounts.PEN].forEach((a) => {
+    const currency = state.accounts.PEN.includes(a) ? "PEN" : "BRL";
+    rows.push(["Conta", a.name, "", currency, "", "", "", "", a.initial, a.initialDate, ""]);
+  });
+
+  rows.push(["Câmbio", "1 PEN em BRL", "", "", "", "", "", "", "", "", state.rate]);
+
+  state.despesas.forEach((d) => {
+    rows.push(["Despesa", d.description, d.account, accountIndex[d.account]?.currency || "BRL", d.value, d.dueDate, d.done ? "Pago" : "Pendente", d.doneDate || "", "", "", ""]);
+  });
+  state.receitas.forEach((r) => {
+    rows.push(["Receita", r.description, r.account, accountIndex[r.account]?.currency || "BRL", r.value, r.dueDate, r.done ? "Recebido" : "Pendente", r.doneDate || "", "", "", ""]);
+  });
+
+  return rows.map((row) => row.map(csvEscape).join(",")).join("\r\n");
+}
+
+function parseCsvLines(text) {
+  // parser simples de CSV que respeita campos entre aspas (com vírgulas/quebras de linha dentro)
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+  const clean = text.replace(/^\uFEFF/, "");
+  for (let i = 0; i < clean.length; i++) {
+    const c = clean[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (clean[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += c;
+      }
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ",") {
+      row.push(field);
+      field = "";
+    } else if (c === "\r") {
+      // ignora, o \n cuida da quebra
+    } else if (c === "\n") {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+    } else {
+      field += c;
+    }
+  }
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows.filter((r) => r.some((c) => c.trim() !== ""));
+}
+
+function parseCsvImport(text) {
+  const rows = parseCsvLines(text);
+  if (rows.length === 0) return { novasDespesas: [], novasReceitas: [], contasUpsert: [], novaTaxa: null, ignoradas: 0 };
+
+  const header = rows[0].map((h) => h.trim().toLowerCase());
+  const idx = {
+    tipo: header.findIndex((h) => h.includes("tipo")),
+    descricao: header.findIndex((h) => h.includes("descri")),
+    conta: header.findIndex((h) => h.includes("conta")),
+    moeda: header.findIndex((h) => h.includes("moeda")),
+    valor: header.findIndex((h) => h.includes("valor")),
+    data: header.findIndex((h) => h === "data"),
+    status: header.findIndex((h) => h.includes("status")),
+    dataEfetivacao: header.findIndex((h) => h.includes("efet")),
+    saldoInicial: header.findIndex((h) => h.includes("saldoinicial")),
+    dataInicial: header.findIndex((h) => h.includes("datainicial")),
+    taxa: header.findIndex((h) => h.includes("taxa")),
+  };
+
+  const novasDespesas = [];
+  const novasReceitas = [];
+  const contasUpsert = [];
+  let novaTaxa = null;
+  let ignoradas = 0;
+
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    const tipo = (r[idx.tipo] || "").trim().toLowerCase();
+
+    if (tipo === "conta") {
+      const name = (r[idx.descricao] || "").trim();
+      const currency = (r[idx.moeda] || "BRL").trim().toUpperCase() === "PEN" ? "PEN" : "BRL";
+      const initial = parseFloat((r[idx.saldoInicial] || "0").replace(",", ".")) || 0;
+      const initialDate = (r[idx.dataInicial] || "").trim();
+      if (!name || !/^\d{4}-\d{2}-\d{2}$/.test(initialDate)) {
+        ignoradas++;
+        continue;
+      }
+      contasUpsert.push({ name, currency, initial, initialDate });
+      continue;
+    }
+
+    if (tipo === "câmbio" || tipo === "cambio") {
+      const taxa = parseFloat((r[idx.taxa] || "").replace(",", "."));
+      if (!isNaN(taxa) && taxa > 0) novaTaxa = taxa;
+      continue;
+    }
+
+    const dueDate = (r[idx.data] || "").trim();
+    const description = (r[idx.descricao] || "").trim();
+    const account = (r[idx.conta] || "").trim();
+    const value = parseFloat((r[idx.valor] || "0").replace(",", "."));
+    const statusRaw = (r[idx.status] || "").trim().toLowerCase();
+    const doneDate = (r[idx.dataEfetivacao] || "").trim() || null;
+
+    const isValidDate = /^\d{4}-\d{2}-\d{2}$/.test(dueDate);
+    if (!isValidDate || !description || !account || !value) {
+      ignoradas++;
+      continue;
+    }
+
+    const isReceita = tipo.includes("receita");
+    const done = statusRaw.includes("pago") || statusRaw.includes("receb");
+    const item = {
+      id: uid(isReceita ? "receita" : "despesa"),
+      account,
+      description,
+      dueDate,
+      value: Math.abs(value),
+      done,
+      doneDate: done ? doneDate || dueDate : null,
+    };
+    if (isReceita) novasReceitas.push(item);
+    else novasDespesas.push(item);
+  }
+
+  return { novasDespesas, novasReceitas, contasUpsert, novaTaxa, ignoradas };
+}
+
 const fmtBRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const fmtPEN = new Intl.NumberFormat("es-PE", { style: "currency", currency: "PEN" });
 const fmt = (v, cur) => (cur === "PEN" ? fmtPEN : fmtBRL).format(v || 0);
@@ -386,21 +628,43 @@ function totalsFromBalances(accounts, bal, rate) {
   return { brl, pen, totalBRL: brl + pen * rate };
 }
 
-/* ------------------------------ persistence (Firestore) ------------------------------ */
+/* ------------------------------ persistence (Firestore, por registro) ------------------------------ */
 
-function applyRemoteData(data) {
-  state.accounts = data.accounts || state.accounts;
-  state.rate = typeof data.rate === "number" ? data.rate : state.rate;
-  state.rateUpdatedAt = data.rateUpdatedAt || state.rateUpdatedAt;
-  state.despesas = data.despesas || state.despesas;
-  state.receitas = data.receitas || state.receitas;
-  localDraft = {
-    accounts: state.accounts,
-    rate: state.rate,
-    rateUpdatedAt: state.rateUpdatedAt,
-    despesas: state.despesas,
-    receitas: state.receitas,
-  };
+let despesasColRef = null;
+let receitasColRef = null;
+let contasColRef = null;
+let loadedParts = { rate: false, despesas: false, receitas: false, contas: false };
+
+const despesaDocRef = (id) => despesasColRef.doc(id);
+const receitaDocRef = (id) => receitasColRef.doc(id);
+const contaDocRef = (id) => contasColRef.doc(id);
+
+/* aplica mudanças localmente (para resposta instantânea) e re-renderiza */
+function applyLocal(fn) {
+  fn();
+  render();
+}
+
+/* grava um lote de operações no Firestore, em pedaços de até 400 (limite do Firestore é 500) */
+async function commitOpsChunked(ops) {
+  const CHUNK = 400;
+  for (let i = 0; i < ops.length; i += CHUNK) {
+    const batch = db.batch();
+    ops.slice(i, i + CHUNK).forEach((op) => {
+      if (op.type === "delete") batch.delete(op.ref);
+      else batch.set(op.ref, op.data, op.merge ? { merge: true } : {});
+    });
+    await batch.commit();
+  }
+}
+
+function commitOps(ops) {
+  if (!ops || ops.length === 0) return Promise.resolve();
+  return commitOpsChunked(ops).catch((e) => {
+    console.error("Falha ao salvar no Firestore", e);
+    state.syncStatus = "error";
+    render();
+  });
 }
 
 /* ------------------------------ cotação automática PEN → BRL ------------------------------ */
@@ -414,10 +678,13 @@ async function fetchExchangeRate(manual) {
     const brl = data && data.rates && data.rates.BRL;
     if (typeof brl !== "number") throw new Error("resposta inesperada da API de câmbio");
     state.rateFetchError = false;
-    mutate(() => {
-      state.rate = Math.round(brl * 10000) / 10000;
-      state.rateUpdatedAt = new Date().toISOString();
+    const newRate = Math.round(brl * 10000) / 10000;
+    const newUpdatedAt = new Date().toISOString();
+    applyLocal(() => {
+      state.rate = newRate;
+      state.rateUpdatedAt = newUpdatedAt;
     });
+    commitOps([{ ref: docRef, type: "set", data: { rate: newRate, rateUpdatedAt: newUpdatedAt }, merge: true }]);
   } catch (e) {
     console.error("Falha ao buscar cotação automática", e);
     state.rateFetchError = true;
@@ -434,66 +701,148 @@ function maybeAutoUpdateRate() {
   }
 }
 
-function startFirestoreSync() {
+/* migra usuários antigos (documento único) para o novo modelo, ou semeia um usuário novo */
+async function migrateIfNeeded() {
+  const snap = await docRef.get();
+  if (!snap.exists) {
+    const ops = [];
+    state.despesas.forEach((d) => ops.push({ ref: despesaDocRef(d.id), type: "set", data: d }));
+    state.receitas.forEach((r) => ops.push({ ref: receitaDocRef(r.id), type: "set", data: r }));
+    [...state.accounts.BRL.map((a) => ({ ...a, currency: "BRL" })), ...state.accounts.PEN.map((a) => ({ ...a, currency: "PEN" }))].forEach((a) =>
+      ops.push({ ref: contaDocRef(a.id), type: "set", data: a })
+    );
+    ops.push({ ref: docRef, type: "set", data: { rate: state.rate, rateUpdatedAt: null } });
+    await commitOpsChunked(ops);
+    return;
+  }
+  const data = snap.data() || {};
+  const hasLegacy = Array.isArray(data.despesas) || Array.isArray(data.receitas) || (data.accounts && typeof data.accounts === "object");
+  if (!hasLegacy) return;
+
+  const ops = [];
+  (data.despesas || []).forEach((d) => ops.push({ ref: despesaDocRef(d.id), type: "set", data: d }));
+  (data.receitas || []).forEach((r) => ops.push({ ref: receitaDocRef(r.id), type: "set", data: r }));
+  const legacyAccounts = data.accounts || {};
+  [...(legacyAccounts.BRL || []).map((a) => ({ ...a, currency: "BRL" })), ...(legacyAccounts.PEN || []).map((a) => ({ ...a, currency: "PEN" }))].forEach((a) =>
+    ops.push({ ref: contaDocRef(a.id), type: "set", data: a })
+  );
+  ops.push({
+    ref: docRef,
+    type: "set",
+    data: {
+      rate: data.rate,
+      rateUpdatedAt: data.rateUpdatedAt || null,
+      despesas: firebase.firestore.FieldValue.delete(),
+      receitas: firebase.firestore.FieldValue.delete(),
+      accounts: firebase.firestore.FieldValue.delete(),
+    },
+    merge: true,
+  });
+  await commitOpsChunked(ops);
+}
+
+function checkAllPartsLoaded() {
+  if (Object.values(loadedParts).every(Boolean) && !state.ready) {
+    state.ready = true;
+    render();
+    maybeAutoUpdateRate();
+  }
+}
+
+function attachFirestoreListeners() {
   docRef.onSnapshot(
     { includeMetadataChanges: true },
     (snapshot) => {
-      const data = snapshot.data();
-      if (!data) {
-        // documento ainda não existe: se já não vem do cache, cria com os dados iniciais
-        if (!snapshot.metadata.fromCache && !firstSnapshotHandled) {
-          firstSnapshotHandled = true;
-          localDraft = { accounts: state.accounts, rate: state.rate, rateUpdatedAt: state.rateUpdatedAt, despesas: state.despesas, receitas: state.receitas };
-          docRef.set(localDraft).catch((e) => console.error("Falha ao criar documento inicial", e));
-        }
-        state.ready = true;
-        state.syncStatus = snapshot.metadata.fromCache ? "offline" : "synced";
-        render();
-        maybeAutoUpdateRate();
-        return;
-      }
-      firstSnapshotHandled = true;
-      applyRemoteData(data);
-      state.ready = true;
-      state.syncStatus = snapshot.metadata.hasPendingWrites
-        ? "saving"
-        : snapshot.metadata.fromCache
-        ? "offline"
-        : "synced";
+      const data = snapshot.data() || {};
+      if (typeof data.rate === "number") state.rate = data.rate;
+      if (data.rateUpdatedAt) state.rateUpdatedAt = data.rateUpdatedAt;
+      state.syncStatus = snapshot.metadata.hasPendingWrites ? "saving" : snapshot.metadata.fromCache ? "offline" : "synced";
+      loadedParts.rate = true;
+      checkAllPartsLoaded();
       render();
-      maybeAutoUpdateRate();
     },
     (error) => {
-      console.error("Erro de sincronização com o Firestore", error);
-      state.ready = true;
+      console.error("Erro de sincronização (câmbio)", error);
       state.syncStatus = "error";
+      loadedParts.rate = true;
+      checkAllPartsLoaded();
       render();
     }
   );
+
+  despesasColRef.onSnapshot(
+    (snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        const id = change.doc.id;
+        if (change.type === "removed") {
+          state.despesas = state.despesas.filter((d) => d.id !== id);
+        } else {
+          const item = { ...change.doc.data(), id };
+          const idx = state.despesas.findIndex((d) => d.id === id);
+          if (idx === -1) state.despesas.push(item);
+          else state.despesas[idx] = item;
+        }
+      });
+      loadedParts.despesas = true;
+      checkAllPartsLoaded();
+      render();
+    },
+    (error) => console.error("Erro de sincronização (despesas)", error)
+  );
+
+  receitasColRef.onSnapshot(
+    (snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        const id = change.doc.id;
+        if (change.type === "removed") {
+          state.receitas = state.receitas.filter((r) => r.id !== id);
+        } else {
+          const item = { ...change.doc.data(), id };
+          const idx = state.receitas.findIndex((r) => r.id === id);
+          if (idx === -1) state.receitas.push(item);
+          else state.receitas[idx] = item;
+        }
+      });
+      loadedParts.receitas = true;
+      checkAllPartsLoaded();
+      render();
+    },
+    (error) => console.error("Erro de sincronização (receitas)", error)
+  );
+
+  contasColRef.onSnapshot(
+    (snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        const id = change.doc.id;
+        state.accounts.BRL = state.accounts.BRL.filter((a) => a.id !== id);
+        state.accounts.PEN = state.accounts.PEN.filter((a) => a.id !== id);
+        if (change.type !== "removed") {
+          const data = change.doc.data();
+          const item = { id, name: data.name, initial: data.initial, initialDate: data.initialDate };
+          (data.currency === "PEN" ? state.accounts.PEN : state.accounts.BRL).push(item);
+        }
+      });
+      loadedParts.contas = true;
+      checkAllPartsLoaded();
+      render();
+    },
+    (error) => console.error("Erro de sincronização (contas)", error)
+  );
 }
 
-function scheduleSave() {
-  if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    docRef.set(localDraft).catch((e) => {
-      console.error("Falha ao salvar no Firestore", e);
-      state.syncStatus = "error";
-      renderHeaderOnly();
-    });
-  }, 400);
-}
+async function startFirestoreSync() {
+  despesasColRef = docRef.collection("despesas");
+  receitasColRef = docRef.collection("receitas");
+  contasColRef = docRef.collection("contas");
+  loadedParts = { rate: false, despesas: false, receitas: false, contas: false };
 
-function mutate(fn) {
-  fn();
-  localDraft = {
-    accounts: state.accounts,
-    rate: state.rate,
-    rateUpdatedAt: state.rateUpdatedAt,
-    despesas: state.despesas,
-    receitas: state.receitas,
-  };
-  scheduleSave();
-  render();
+  try {
+    await migrateIfNeeded();
+  } catch (e) {
+    console.error("Falha ao migrar/semear dados iniciais", e);
+  }
+
+  attachFirestoreListeners();
 }
 
 /* ------------------------------ render: header & tab bar ------------------------------ */
@@ -525,7 +874,7 @@ function renderHeader() {
   return `
     <header>
       <div>
-        <div class="header-title">Controle Financeiro</div>
+        <div class="header-title"><span class="header-logo">R$</span>Controle Financeiro</div>
         <div class="header-subtitle">Brasil · Perú ${syncDotHtml()}</div>
       </div>
       <div class="header-right">
@@ -618,6 +967,132 @@ function renderTabBar() {
 
 /* ------------------------------ render: Fluxo ------------------------------ */
 
+function computeMonthlyKPIs() {
+  const accounts = state.accounts;
+  const now = new Date();
+  const curYear = now.getFullYear();
+  const curMonth = now.getMonth();
+  const prev = new Date(Date.UTC(curYear, curMonth - 1, 1));
+  const prevYear = prev.getUTCFullYear();
+  const prevMonth = prev.getUTCMonth();
+
+  function sumInMonth(list, year, month) {
+    let brl = 0,
+      pen = 0;
+    const accountIndex = buildAccountIndex(accounts);
+    list.forEach((it) => {
+      if (!it.done || !it.doneDate) return;
+      const d = new Date(it.doneDate + "T00:00:00Z");
+      if (d.getUTCFullYear() !== year || d.getUTCMonth() !== month) return;
+      const cur = accountIndex[it.account]?.currency || "BRL";
+      if (cur === "PEN") pen += it.value;
+      else brl += it.value;
+    });
+    return { brl, pen, totalBRL: brl + pen * state.rate };
+  }
+
+  const receitasMes = sumInMonth(state.receitas, curYear, curMonth);
+  const despesasMes = sumInMonth(state.despesas, curYear, curMonth);
+  const receitasMesAnt = sumInMonth(state.receitas, prevYear, prevMonth);
+  const despesasMesAnt = sumInMonth(state.despesas, prevYear, prevMonth);
+
+  const economiaMes = receitasMes.totalBRL - despesasMes.totalBRL;
+  const taxaPoupanca = receitasMes.totalBRL > 0 ? Math.round((economiaMes / receitasMes.totalBRL) * 100) : 0;
+
+  function pctChange(cur, prev) {
+    if (prev === 0) return null;
+    return Math.round(((cur - prev) / prev) * 100);
+  }
+
+  return {
+    receitasMes,
+    despesasMes,
+    economiaMes,
+    taxaPoupanca,
+    receitasDelta: pctChange(receitasMes.totalBRL, receitasMesAnt.totalBRL),
+    despesasDelta: pctChange(despesasMes.totalBRL, despesasMesAnt.totalBRL),
+  };
+}
+
+function buildDonutSvg(slices) {
+  const total = slices.reduce((s, x) => s + x.value, 0);
+  const R = 46,
+    CX = 60,
+    CY = 60,
+    STROKE = 20;
+  const circumference = 2 * Math.PI * R;
+  if (total <= 0) {
+    return `<svg viewBox="0 0 120 120" style="width:120px;height:120px;flex-shrink:0">
+      <circle cx="${CX}" cy="${CY}" r="${R}" fill="none" stroke="var(--border)" stroke-width="${STROKE}"/>
+    </svg>`;
+  }
+  let offset = 0;
+  const arcs = slices
+    .map((s) => {
+      const frac = s.value / total;
+      const len = frac * circumference;
+      const dash = `${len.toFixed(2)} ${(circumference - len).toFixed(2)}`;
+      const el = `<circle cx="${CX}" cy="${CY}" r="${R}" fill="none" stroke="${s.color}" stroke-width="${STROKE}"
+        stroke-dasharray="${dash}" stroke-dashoffset="${(-offset).toFixed(2)}" transform="rotate(-90 ${CX} ${CY})"/>`;
+      offset += len;
+      return el;
+    })
+    .join("");
+  return `<svg viewBox="0 0 120 120" style="width:120px;height:120px;flex-shrink:0">${arcs}</svg>`;
+}
+
+const DONUT_COLORS = ["#4f46e5", "#16a34a", "#d97706", "#dc2626", "#0891b2", "#7c3aed", "#db2777"];
+
+function renderExpensesByAccountCard() {
+  const now = new Date();
+  const accountIndex = buildAccountIndex(state.accounts);
+  const totals = {};
+  state.despesas.forEach((d) => {
+    if (!d.done || !d.doneDate) return;
+    const dt = new Date(d.doneDate + "T00:00:00Z");
+    if (dt.getUTCFullYear() !== now.getFullYear() || dt.getUTCMonth() !== now.getMonth()) return;
+    const currency = accountIndex[d.account]?.currency || "BRL";
+    const valueBRL = currency === "PEN" ? d.value * state.rate : d.value;
+    totals[d.account] = (totals[d.account] || 0) + valueBRL;
+  });
+  const slices = Object.entries(totals)
+    .map(([name, value], i) => ({ name, value, color: DONUT_COLORS[i % DONUT_COLORS.length] }))
+    .sort((a, b) => b.value - a.value);
+  const total = slices.reduce((s, x) => s + x.value, 0);
+
+  return `
+    <div class="chart-card">
+      <div class="chart-card-title">Despesas por Conta</div>
+      <div class="chart-card-sub">Distribuição dos gastos neste mês</div>
+      ${
+        slices.length === 0
+          ? `<div class="empty-state">Nenhuma despesa paga neste mês ainda.</div>`
+          : `<div class="donut-row">
+        <div style="position:relative">
+          ${buildDonutSvg(slices)}
+          <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+            <div class="donut-center-label">Total</div>
+            <div class="donut-center-value">${fmtBRL.format(total).replace("R$", "").trim()}</div>
+          </div>
+        </div>
+        <div class="donut-legend">
+          ${slices
+            .map(
+              (s) => `
+            <div class="donut-legend-row">
+              <span class="donut-dot" style="background:${s.color}"></span>
+              <span class="donut-legend-name">${esc(s.name)}</span>
+              <span class="donut-legend-value">${fmtBRL.format(s.value)}</span>
+              <span class="donut-legend-pct">${total > 0 ? Math.round((s.value / total) * 100) : 0}%</span>
+            </div>`
+            )
+            .join("")}
+        </div>
+      </div>`
+      }
+    </div>`;
+}
+
 function renderFluxoTab() {
   const today = todayStr();
   const accounts = state.accounts;
@@ -646,6 +1121,8 @@ function renderFluxoTab() {
     .filter((r) => (state.fluxoFilterMonth === "todos" ? true : r.date?.slice(5, 7) === state.fluxoFilterMonth))
     .filter((r) => matchesSearch(r.description, state.fluxoSearchText));
 
+  const kpi = mode === "real" ? computeMonthlyKPIs() : null;
+
   return `
     ${rateCardHtml()}
     <div class="segmented">
@@ -656,6 +1133,30 @@ function renderFluxoTab() {
     ${
       mode === "real"
         ? `
+      <div class="section-label">Este mês</div>
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-top"><span class="kpi-label">Saldo acumulado</span><span class="kpi-icon" style="background:var(--gold-dim);color:var(--gold)">${ICONS.wallet}</span></div>
+          <div class="kpi-value">${fmtBRL.format(currentTotals.totalBRL)}</div>
+          <div class="kpi-sub">Saldo total até a data</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-top"><span class="kpi-label">Receitas do mês</span><span class="kpi-icon" style="background:#ecfdf3;color:var(--brl)">${ICONS.up}</span></div>
+          <div class="kpi-value">${fmtBRL.format(kpi.receitasMes.totalBRL)}</div>
+          <div class="kpi-sub">${kpi.receitasDelta === null ? "sem comparação" : `<span class="kpi-delta ${kpi.receitasDelta >= 0 ? "up" : "down"}">${kpi.receitasDelta >= 0 ? "▲" : "▼"} ${Math.abs(kpi.receitasDelta)}%</span> vs anterior`}</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-top"><span class="kpi-label">Despesas do mês</span><span class="kpi-icon" style="background:#fef2f2;color:var(--danger)">${ICONS.down}</span></div>
+          <div class="kpi-value">${fmtBRL.format(kpi.despesasMes.totalBRL)}</div>
+          <div class="kpi-sub">${kpi.despesasDelta === null ? "sem comparação" : `<span class="kpi-delta ${kpi.despesasDelta <= 0 ? "up" : "down"}">${kpi.despesasDelta >= 0 ? "▲" : "▼"} ${Math.abs(kpi.despesasDelta)}%</span> vs anterior`}</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-top"><span class="kpi-label">Economia do mês</span><span class="kpi-icon" style="background:var(--gold-dim);color:var(--gold)">$</span></div>
+          <div class="kpi-value" style="color:${kpi.economiaMes < 0 ? "var(--danger)" : "var(--text)"}">${fmtBRL.format(kpi.economiaMes)}</div>
+          <div class="kpi-sub"><span class="kpi-delta ${kpi.taxaPoupanca >= 0 ? "up" : "down"}">${kpi.taxaPoupanca}%</span> taxa de poupança</div>
+        </div>
+      </div>
+
       <div class="section-label">Saldo atual · ${fmtDate(today)}</div>
       <div class="balance-grid">
         ${[...accounts.BRL, ...accounts.PEN]
@@ -672,6 +1173,15 @@ function renderFluxoTab() {
         <div><span class="total-strip-label">Total R$</span><span class="total-strip-value" style="color:var(--brl)">${fmtBRL.format(currentTotals.brl)}</span></div>
         <div><span class="total-strip-label">Total S/</span><span class="total-strip-value" style="color:var(--pen)">${fmtPEN.format(currentTotals.pen)}</span></div>
         <div><span class="total-strip-label">Total geral (R$)</span><span class="total-strip-value" style="color:var(--gold)">${fmtBRL.format(currentTotals.totalBRL)}</span></div>
+      </div>
+
+      <div class="dashboard-grid" style="margin-top:14px">
+        <div class="chart-card">
+          <div class="chart-card-title">Evolução do Saldo</div>
+          <div class="chart-card-sub">Saldo acumulado nos últimos 12 meses</div>
+          ${buildBalanceChart(buildMonthlyChartData("real"))}
+        </div>
+        ${renderExpensesByAccountCard()}
       </div>`
         : ""
     }
@@ -1210,10 +1720,17 @@ function renderContasTab() {
     }
     <div class="section-label">Backup manual</div>
     <div class="backup-row">
-      <button class="backup-btn" data-action="export-data">${ICONS.download} Exportar dados</button>
-      <button class="backup-btn" data-action="import-data">${ICONS.upload} Importar dados</button>
+      <button class="backup-btn" data-action="export-data">${ICONS.download} Exportar dados (JSON)</button>
+      <button class="backup-btn" data-action="import-data">${ICONS.upload} Importar dados (JSON)</button>
     </div>
     <input type="file" id="import-file-input" accept="application/json" style="display:none"/>
+    <div class="section-label">Planilha (CSV)</div>
+    <div class="backup-row">
+      <button class="backup-btn" data-action="export-csv">${ICONS.download} Exportar CSV</button>
+      <button class="backup-btn" data-action="import-csv">${ICONS.upload} Importar CSV</button>
+    </div>
+    <input type="file" id="import-csv-input" accept=".csv,text/csv" style="display:none"/>
+    <div style="font-size:11px;color:var(--text-dim);margin-top:2px">O CSV exporta contas, câmbio, despesas e receitas. Ao importar: despesas/receitas são somadas; contas com o mesmo nome são atualizadas (saldo/data), contas novas são criadas.</div>
     <div class="section-label">Sessão</div>
     <div class="rate-card">
       <div class="rate-text" style="margin-bottom:10px">Conectado como ${esc(currentUser?.email || "")}</div>
@@ -1348,7 +1865,9 @@ function bindEvents() {
   const rateInput = shell.querySelector('[data-action="set-rate"]');
   if (rateInput)
     rateInput.addEventListener("change", (e) => {
-      mutate(() => (state.rate = parseFloat(e.target.value) || 0));
+      const newRate = parseFloat(e.target.value) || 0;
+      applyLocal(() => (state.rate = newRate));
+      commitOps([{ ref: docRef, type: "set", data: { rate: newRate }, merge: true }]);
     });
 
   const refreshRateBtn = shell.querySelector('[data-action="refresh-rate"]');
@@ -1434,16 +1953,25 @@ function bindEvents() {
         doneDate = form.querySelector('[data-field="doneDate"]').value || todayStr();
       }
 
-      mutate(() => {
+      const newItems = dueDates.map((dueDate) => ({
+        id: uid(kind),
+        account,
+        description,
+        dueDate,
+        value,
+        done: alreadyDone,
+        doneDate: alreadyDone ? doneDate : null,
+      }));
+
+      applyLocal(() => {
         const list = kind === "despesa" ? state.despesas : state.receitas;
-        dueDates.forEach((dueDate) => {
-          list.push({ id: uid(kind), account, description, dueDate, value, done: alreadyDone, doneDate: alreadyDone ? doneDate : null });
-        });
+        list.push(...newItems);
         state[kind === "despesa" ? "showDespesaForm" : "showReceitaForm"] = false;
         state.newItemRepeat[kind] = "none";
         state.newItemAlreadyDone[kind] = false;
         state.newItemDraft[kind] = {};
       });
+      commitOps(newItems.map((item) => ({ ref: (kind === "despesa" ? despesaDocRef : receitaDocRef)(item.id), type: "set", data: item })));
     })
   );
 
@@ -1489,10 +2017,11 @@ function bindEvents() {
       if (!item) return;
       if (item.done) {
         // desmarcar não precisa de data
-        mutate(() => {
+        applyLocal(() => {
           item.done = false;
           item.doneDate = null;
         });
+        commitOps([{ ref: (kind === "despesa" ? despesaDocRef : receitaDocRef)(id), type: "set", data: { done: false, doneDate: null }, merge: true }]);
       } else {
         state.pendingDoneToggle = { kind, id, date: todayStr() };
         render();
@@ -1517,13 +2046,14 @@ function bindEvents() {
       const chosenDate = document.getElementById("pending-done-date-input").value || todayStr();
       const list = kind === "despesa" ? state.despesas : state.receitas;
       const item = list.find((i) => i.id === id);
-      mutate(() => {
+      applyLocal(() => {
         if (item) {
           item.done = true;
           item.doneDate = chosenDate;
         }
         state.pendingDoneToggle = null;
       });
+      if (item) commitOps([{ ref: (kind === "despesa" ? despesaDocRef : receitaDocRef)(id), type: "set", data: { done: true, doneDate: chosenDate }, merge: true }]);
     });
 
   function captureTransferDraft() {
@@ -1603,44 +2133,53 @@ function bindEvents() {
         return;
       }
 
-      mutate(() => {
-        const transferId = uid("transfer");
-        state.despesas.push({
-          id: uid("despesa"),
-          account: originAccount,
-          description: `Transferência para ${destAccount}`,
-          dueDate: date,
-          value: outValue,
-          done: true,
-          doneDate: date,
-          isTransfer: true,
-          transferId,
-        });
-        state.receitas.push({
-          id: uid("receita"),
-          account: destAccount,
-          description: `Transferência de ${originAccount}`,
-          dueDate: date,
-          value: inValue,
-          done: true,
-          doneDate: date,
-          isTransfer: true,
-          transferId,
-        });
+      const transferId = uid("transfer");
+      const despesaItem = {
+        id: uid("despesa"),
+        account: originAccount,
+        description: `Transferência para ${destAccount}`,
+        dueDate: date,
+        value: outValue,
+        done: true,
+        doneDate: date,
+        isTransfer: true,
+        transferId,
+      };
+      const receitaItem = {
+        id: uid("receita"),
+        account: destAccount,
+        description: `Transferência de ${originAccount}`,
+        dueDate: date,
+        value: inValue,
+        done: true,
+        doneDate: date,
+        isTransfer: true,
+        transferId,
+      };
+
+      applyLocal(() => {
+        state.despesas.push(despesaItem);
+        state.receitas.push(receitaItem);
         state.transferModal = null;
         state.transferError = "";
       });
+      commitOps([
+        { ref: despesaDocRef(despesaItem.id), type: "set", data: despesaItem },
+        { ref: receitaDocRef(receitaItem.id), type: "set", data: receitaItem },
+      ]);
     });
 
   shell.querySelectorAll("[data-edit]").forEach((input) =>
     input.addEventListener("change", (e) => {
       const { edit, kind, id } = input.dataset;
-      mutate(() => {
-        const list = kind === "despesa" ? state.despesas : state.receitas;
-        const item = list.find((i) => i.id === id);
-        if (!item) return;
-        item[edit] = edit === "value" ? parseFloat(e.target.value) || 0 : e.target.value;
+      const list = kind === "despesa" ? state.despesas : state.receitas;
+      const item = list.find((i) => i.id === id);
+      if (!item) return;
+      const newValue = edit === "value" ? parseFloat(e.target.value) || 0 : e.target.value;
+      applyLocal(() => {
+        item[edit] = newValue;
       });
+      commitOps([{ ref: (kind === "despesa" ? despesaDocRef : receitaDocRef)(id), type: "set", data: { [edit]: newValue }, merge: true }]);
     })
   );
 
@@ -1650,7 +2189,9 @@ function bindEvents() {
       const list = kind === "despesa" ? state.despesas : state.receitas;
       const item = list.find((i) => i.id === id);
       const transferId = item && item.isTransfer ? item.transferId : null;
-      mutate(() => {
+      const pairedDespesaIds = transferId ? state.despesas.filter((i) => i.transferId === transferId && i.id !== id).map((i) => i.id) : [];
+      const pairedReceitaIds = transferId ? state.receitas.filter((i) => i.transferId === transferId && i.id !== id).map((i) => i.id) : [];
+      applyLocal(() => {
         if (kind === "despesa") state.despesas = state.despesas.filter((i) => i.id !== id);
         else state.receitas = state.receitas.filter((i) => i.id !== id);
         if (transferId) {
@@ -1659,35 +2200,44 @@ function bindEvents() {
           state.receitas = state.receitas.filter((i) => i.transferId !== transferId);
         }
       });
+      const ops = [{ ref: (kind === "despesa" ? despesaDocRef : receitaDocRef)(id), type: "delete" }];
+      pairedDespesaIds.forEach((pid) => ops.push({ ref: despesaDocRef(pid), type: "delete" }));
+      pairedReceitaIds.forEach((pid) => ops.push({ ref: receitaDocRef(pid), type: "delete" }));
+      commitOps(ops);
     })
   );
 
   shell.querySelectorAll("[data-edit-acc]").forEach((input) =>
     input.addEventListener("change", (e) => {
       const { editAcc, currency, id } = input.dataset;
-      mutate(() => {
-        const acc = state.accounts[currency].find((a) => a.id === id);
-        if (!acc) return;
-        acc[editAcc] = editAcc === "initial" ? parseFloat(e.target.value) || 0 : e.target.value;
+      const acc = state.accounts[currency].find((a) => a.id === id);
+      if (!acc) return;
+      const newValue = editAcc === "initial" ? parseFloat(e.target.value) || 0 : e.target.value;
+      applyLocal(() => {
+        acc[editAcc] = newValue;
       });
+      commitOps([{ ref: contaDocRef(id), type: "set", data: { [editAcc]: newValue }, merge: true }]);
     })
   );
 
   shell.querySelectorAll('[data-action="delete-account"]').forEach((btn) =>
     btn.addEventListener("click", () => {
       const { currency, id } = btn.dataset;
-      mutate(() => {
+      applyLocal(() => {
         state.accounts[currency] = state.accounts[currency].filter((a) => a.id !== id);
       });
+      commitOps([{ ref: contaDocRef(id), type: "delete" }]);
     })
   );
 
   shell.querySelectorAll('[data-action="add-account"]').forEach((btn) =>
     btn.addEventListener("click", () => {
       const { currency } = btn.dataset;
-      mutate(() => {
-        state.accounts[currency].push({ id: uid("acc"), name: "Nova conta", initial: 0, initialDate: todayStr() });
+      const newAcc = { id: uid("acc"), name: "Nova conta", initial: 0, initialDate: todayStr() };
+      applyLocal(() => {
+        state.accounts[currency].push(newAcc);
       });
+      commitOps([{ ref: contaDocRef(newAcc.id), type: "set", data: { ...newAcc, currency } }]);
     })
   );
 
@@ -1712,20 +2262,123 @@ function bindEvents() {
       const file = e.target.files[0];
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = () => {
+      reader.onload = async () => {
         try {
           const data = JSON.parse(reader.result);
-          mutate(() => {
-            if (data.accounts) state.accounts = data.accounts;
-            if (typeof data.rate === "number") state.rate = data.rate;
-            if (data.despesas) state.despesas = data.despesas;
-            if (data.receitas) state.receitas = data.receitas;
+          const newAccounts = data.accounts || state.accounts;
+          const newRate = typeof data.rate === "number" ? data.rate : state.rate;
+          const newDespesas = data.despesas || state.despesas;
+          const newReceitas = data.receitas || state.receitas;
+
+          state.syncStatus = "saving";
+          render();
+
+          // isso substitui TUDO: apaga o que existe hoje nas 3 coleções e grava os dados importados
+          const [oldDespesas, oldReceitas, oldContas] = await Promise.all([despesasColRef.get(), receitasColRef.get(), contasColRef.get()]);
+          const ops = [];
+          oldDespesas.forEach((doc) => ops.push({ ref: doc.ref, type: "delete" }));
+          oldReceitas.forEach((doc) => ops.push({ ref: doc.ref, type: "delete" }));
+          oldContas.forEach((doc) => ops.push({ ref: doc.ref, type: "delete" }));
+          newDespesas.forEach((d) => ops.push({ ref: despesaDocRef(d.id), type: "set", data: d }));
+          newReceitas.forEach((r) => ops.push({ ref: receitaDocRef(r.id), type: "set", data: r }));
+          [...(newAccounts.BRL || []).map((a) => ({ ...a, currency: "BRL" })), ...(newAccounts.PEN || []).map((a) => ({ ...a, currency: "PEN" }))].forEach((a) =>
+            ops.push({ ref: contaDocRef(a.id), type: "set", data: a })
+          );
+          ops.push({ ref: docRef, type: "set", data: { rate: newRate }, merge: true });
+
+          applyLocal(() => {
+            state.accounts = newAccounts;
+            state.rate = newRate;
+            state.despesas = newDespesas;
+            state.receitas = newReceitas;
           });
+          await commitOpsChunked(ops);
         } catch (err) {
+          console.error(err);
           alert("Arquivo inválido.");
         }
       };
       reader.readAsText(file);
+    });
+  }
+
+  const exportCsvBtn = shell.querySelector('[data-action="export-csv"]');
+  if (exportCsvBtn)
+    exportCsvBtn.addEventListener("click", () => {
+      const csv = buildCsvExport();
+      const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `controle-financeiro-${todayStr()}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+  const importCsvBtn = shell.querySelector('[data-action="import-csv"]');
+  const importCsvInput = shell.querySelector("#import-csv-input");
+  if (importCsvBtn && importCsvInput) {
+    importCsvBtn.addEventListener("click", () => importCsvInput.click());
+    importCsvInput.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const { novasDespesas, novasReceitas, contasUpsert, novaTaxa, ignoradas } = parseCsvImport(reader.result);
+          if (novasDespesas.length === 0 && novasReceitas.length === 0 && contasUpsert.length === 0 && novaTaxa === null) {
+            alert("Nenhuma linha válida encontrada no CSV.");
+            return;
+          }
+
+          const ops = [];
+          const accountIndexBefore = buildAccountIndex(state.accounts);
+
+          applyLocal(() => {
+            contasUpsert.forEach((c) => {
+              const existing = accountIndexBefore[c.name];
+              if (existing) {
+                // já existe uma conta com esse nome: atualiza os dados dela
+                const arr = state.accounts[existing.currency];
+                const acc = arr.find((a) => a.id === existing.id);
+                if (acc) {
+                  acc.initial = c.initial;
+                  acc.initialDate = c.initialDate;
+                }
+                ops.push({ ref: contaDocRef(existing.id), type: "set", data: { initial: c.initial, initialDate: c.initialDate }, merge: true });
+              } else {
+                const newAcc = { id: uid("acc"), name: c.name, initial: c.initial, initialDate: c.initialDate };
+                state.accounts[c.currency].push(newAcc);
+                ops.push({ ref: contaDocRef(newAcc.id), type: "set", data: { ...newAcc, currency: c.currency } });
+              }
+            });
+
+            if (novaTaxa !== null) {
+              state.rate = novaTaxa;
+              ops.push({ ref: docRef, type: "set", data: { rate: novaTaxa }, merge: true });
+            }
+
+            state.despesas.push(...novasDespesas);
+            state.receitas.push(...novasReceitas);
+          });
+
+          novasDespesas.forEach((d) => ops.push({ ref: despesaDocRef(d.id), type: "set", data: d }));
+          novasReceitas.forEach((r) => ops.push({ ref: receitaDocRef(r.id), type: "set", data: r }));
+          commitOps(ops);
+
+          const partes = [];
+          if (contasUpsert.length) partes.push(`${contasUpsert.length} conta(s)`);
+          if (novaTaxa !== null) partes.push("taxa de câmbio");
+          if (novasDespesas.length) partes.push(`${novasDespesas.length} despesa(s)`);
+          if (novasReceitas.length) partes.push(`${novasReceitas.length} receita(s)`);
+          alert(`Importado: ${partes.join(", ")}.${ignoradas ? ` ${ignoradas} linha(s) ignorada(s) por dados incompletos.` : ""}`);
+        } catch (err) {
+          console.error(err);
+          alert("Não foi possível ler esse CSV. Confira se o formato é o mesmo do exportado por aqui.");
+        }
+        importCsvInput.value = "";
+      };
+      reader.readAsText(file, "utf-8");
     });
   }
 
@@ -1802,22 +2455,37 @@ function traduzErroAuth(code) {
 }
 
 function renderLoginScreen(errorMsg, prefillEmail, infoMsg) {
+  document.body.classList.add("login-mode");
   const shell = document.getElementById("app-shell");
   shell.innerHTML = `
     <div class="login-wrap">
       <div class="login-card">
-        <div class="header-title" style="margin-bottom:4px">Controle Financeiro</div>
-        <div class="header-subtitle" style="margin-bottom:18px">Entre para continuar</div>
-        <div class="field-row"><div class="field-label">E-mail</div><input type="text" id="login-email" inputmode="email" autocomplete="username" value="${esc(prefillEmail || "")}"/></div>
-        <div class="field-row" style="margin-top:10px"><div class="field-label">Senha</div><input type="password" id="login-password" autocomplete="current-password"/></div>
-        ${errorMsg ? `<div style="color:var(--danger);font-size:12.5px;margin-top:10px">${esc(errorMsg)}</div>` : ""}
-        ${infoMsg ? `<div style="color:var(--brl);font-size:12.5px;margin-top:10px">${esc(infoMsg)}</div>` : ""}
-        <button class="add-btn" id="login-submit" style="width:100%;justify-content:center;margin-top:16px">Entrar</button>
-        <button class="cancel-btn" id="forgot-password" style="width:100%;justify-content:center;margin-top:10px;border:none">Esqueci minha senha</button>
+        <div class="login-logo">R$</div>
+        <div class="login-title">Controle Financeiro</div>
+        <div class="login-subtitle">Acesse suas finanças com simplicidade</div>
+        <div class="login-field-row"><div class="field-label">E-mail</div><input type="text" id="login-email" inputmode="email" autocomplete="username" value="${esc(prefillEmail || "")}"/></div>
+        <div class="login-field-row">
+          <div class="field-label">Senha</div>
+          <div class="password-wrap">
+            <input type="password" id="login-password" autocomplete="current-password"/>
+            <button type="button" class="password-toggle" id="toggle-login-password" aria-label="Mostrar senha">${ICONS.eye}</button>
+          </div>
+        </div>
+        ${errorMsg ? `<div style="color:var(--danger);font-size:12.5px;margin-top:6px;text-align:left">${esc(errorMsg)}</div>` : ""}
+        ${infoMsg ? `<div style="color:var(--brl);font-size:12.5px;margin-top:6px;text-align:left">${esc(infoMsg)}</div>` : ""}
+        <button class="add-btn" id="login-submit" style="width:100%;justify-content:center;margin-top:18px;padding:12px 0;font-size:14px">Entrar</button>
+        <button class="login-forgot-link" id="forgot-password">Esqueci minha senha</button>
       </div>
     </div>`;
   document.getElementById("login-submit").addEventListener("click", doLogin);
   document.getElementById("forgot-password").addEventListener("click", doForgotPassword);
+  const pwdInput = document.getElementById("login-password");
+  const pwdToggle = document.getElementById("toggle-login-password");
+  pwdToggle.addEventListener("click", () => {
+    const showing = pwdInput.type === "text";
+    pwdInput.type = showing ? "password" : "text";
+    pwdToggle.innerHTML = showing ? ICONS.eye : ICONS.eyeOff;
+  });
   shell.querySelectorAll("#login-email, #login-password").forEach((el) =>
     el.addEventListener("keydown", (e) => {
       if (e.key === "Enter") doLogin();
@@ -1862,6 +2530,7 @@ auth.onAuthStateChanged((user) => {
     currentUser = user;
     docRef = db.collection("controle-financeiro").doc(user.uid);
     state.ready = false;
+    document.body.classList.remove("login-mode");
     render();
     startFirestoreSync();
   } else {
