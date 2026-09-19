@@ -30,6 +30,20 @@
     --gold-dim: #eef0fd;
     --shadow: 0 1px 2px rgba(20,22,40,0.04), 0 4px 14px rgba(20,22,40,0.05);
   }
+  body.theme-dark {
+    --bg: #12161d;
+    --panel: #1a2029;
+    --panel-2: #202836;
+    --border: rgba(255,255,255,0.09);
+    --text: #ece8de;
+    --text-dim: #8d94a3;
+    --brl: #55b28d;
+    --pen: #e2984f;
+    --danger: #e0637a;
+    --gold: #cba15e;
+    --gold-dim: rgba(203,161,94,0.15);
+    --shadow: 0 1px 2px rgba(0,0,0,0.2), 0 4px 14px rgba(0,0,0,0.25);
+  }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: var(--bg); }
   body { font-family: 'Inter', sans-serif; color: var(--text); }
@@ -64,6 +78,7 @@
     flex-shrink: 0;
   }
   .header-title { font-family: 'Inter', sans-serif; font-size: 19px; font-weight: 800; letter-spacing: -0.02em; display: flex; align-items: center; gap: 9px; }
+  .header-version { font-size: 10px; font-weight: 600; color: var(--text-dim); margin-left: 2px; }
   .header-logo {
     width: 30px; height: 30px; border-radius: 9px; background: var(--gold); color: #fff;
     display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0;
@@ -178,6 +193,7 @@
     border-radius: 9px; padding: 8px 12px; font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap;
     box-shadow: 0 1px 2px rgba(79,70,229,0.25);
   }
+  body.theme-dark .add-btn { color: #1a1406; box-shadow: none; }
   .cancel-btn { background: var(--panel); color: var(--text-dim); border: 1px solid var(--border); border-radius: 9px; padding: 8px 14px; font-size: 12.5px; cursor: pointer; }
 
   .form-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px; margin: 10px 0 4px; display: flex; flex-direction: column; gap: 10px; box-shadow: var(--shadow); }
@@ -193,12 +209,13 @@
   .chevron.open { transform: rotate(180deg); }
   .item-detail { border-top: 1px solid var(--border); padding: 12px; display: flex; flex-direction: column; gap: 10px; }
 
-  .field-row { display: flex; flex-direction: column; gap: 4px; }
+  .field-row { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
   .field-label { font-size: 11.5px; color: var(--text-dim); }
   input[type=text], input[type=number], input[type=date], input[type=password] {
     background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px;
-    padding: 8px 10px; font-size: 16px; width: 100%;
+    padding: 8px 10px; font-size: 16px; width: 100%; min-width: 0; box-sizing: border-box; display: block;
   }
+  input[type=date] { max-width: 100%; }
   .delete-btn { display: flex; align-items: center; gap: 6px; background: none; border: none; color: var(--danger);
     font-size: 12.5px; padding: 4px 0; cursor: pointer; align-self: flex-start; }
   .delete-btn svg { width: 14px; height: 14px; }
@@ -215,9 +232,10 @@
     border-radius: 10px; padding: 10px 0; justify-content: center; font-size: 12.5px; width: 100%; cursor: pointer; }
   .add-account-btn svg { width: 15px; height: 15px; }
 
-  .backup-row { display: flex; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
-  .backup-btn { flex: 1; min-width: 130px; display: flex; align-items: center; justify-content: center; gap: 6px; background: var(--panel);
-    border: 1px solid var(--border); color: var(--text); border-radius: 9px; padding: 10px 0; font-size: 12.5px; cursor: pointer; box-shadow: var(--shadow); }
+  .backup-row { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
+  .backup-btn { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 5px; background: var(--panel-2);
+    border: 1px solid var(--border); color: var(--text-dim); border-radius: 8px; padding: 7px 8px; font-size: 11px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+  .backup-btn svg { width: 13px; height: 13px; flex-shrink: 0; }
 
   .login-wrap {
     display: flex; align-items: center; justify-content: center; min-height: 100%; padding: 20px;
@@ -251,6 +269,23 @@
   .password-toggle svg { width: 18px; height: 18px; }
   .login-forgot-link { display: block; text-align: center; color: var(--gold); font-size: 13px; font-weight: 600; margin-top: 16px; background: none; border: none; cursor: pointer; width: 100%; }
 
+  .fab-backdrop { position: fixed; inset: 0; z-index: 44; background: transparent; }
+  .fab-wrap { position: fixed; right: 20px; bottom: calc(78px + env(safe-area-inset-bottom)); z-index: 45; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+  .fab-btn {
+    width: 56px; height: 56px; border-radius: 50%; background: var(--gold); color: #fff; border: none;
+    display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 20px rgba(0,0,0,0.28); cursor: pointer;
+    transition: transform 0.18s;
+  }
+  body.theme-dark .fab-btn { color: #1a1406; }
+  .fab-btn svg { width: 26px; height: 26px; }
+  .fab-btn.open { transform: rotate(45deg); }
+  .fab-menu { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+  .fab-menu-item {
+    display: flex; align-items: center; gap: 8px; background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 11px; padding: 10px 14px; font-size: 13px; font-weight: 600; box-shadow: var(--shadow); cursor: pointer; white-space: nowrap;
+  }
+  .fab-menu-item svg { width: 16px; height: 16px; }
+
   nav.tab-bar {
     display: flex; justify-content: space-around; background: var(--panel); border-top: 1px solid var(--border);
     padding: 8px 4px calc(8px + env(safe-area-inset-bottom)); flex-shrink: 0;
@@ -272,22 +307,26 @@
   @media (min-width: 1000px) {
     #app-shell { max-width: 1180px; height: auto; min-height: 100vh; min-height: 100dvh; overflow: visible; }
     body { overflow-y: auto; }
-    main { overflow-y: visible; padding: 26px 32px 40px; }
-    header { padding-left: 32px; padding-right: 32px; }
+    main { overflow-y: visible; padding: 26px 32px 40px; order: 2; }
+    header { padding-left: 32px; padding-right: 32px; position: sticky; top: 0; z-index: 30; order: 0; }
 
-    /* barra de navegação some embaixo e vira uma barra horizontal no topo */
+    /* barra de navegação some embaixo e vira uma barra horizontal no topo, logo abaixo do cabeçalho */
     nav.tab-bar {
-      order: -1;
+      order: 1;
       flex-direction: row;
       justify-content: flex-start;
       gap: 4px;
       border-top: none;
       border-bottom: 1px solid var(--border);
       padding: 10px 32px;
+      position: sticky;
+      z-index: 25;
     }
     .tab-btn { flex-direction: row; padding: 8px 14px; }
     .tab-btn.active { background: var(--gold-dim); }
     .tab-btn-label { font-size: 13px; }
+
+    .fab-wrap { bottom: 24px; }
 
     .dashboard-grid { grid-template-columns: 1.3fr 1fr; align-items: start; }
     .balance-grid { grid-template-columns: repeat(5, 1fr); }
@@ -302,7 +341,8 @@
  *  Sincroniza via Firebase Firestore (tempo real + persistência offline).
  * ---------------------------------------------------------------------- */
 
-const APP_BUILD = "2026-09-19.3"; // mude este valor a cada atualização, para conferir no app se a versão é a mais recente
+const APP_VERSION = "1.3"; // versão curta mostrada ao lado do título — suba junto com o APP_BUILD abaixo
+const APP_BUILD = "2026-09-19.5"; // mude este valor a cada atualização, para conferir no app se a versão é a mais recente
 
 const firebaseConfig = {
   apiKey: "AIzaSyAx6CD4hD9gD-r9kTL3nfAbE1Qg-w2LyTw",
@@ -366,6 +406,23 @@ const _now = new Date();
 const _curYear = String(_now.getFullYear());
 const _curMonth = String(_now.getMonth() + 1).padStart(2, "0");
 
+const THEME_KEY = "controle-financeiro-theme";
+function applyTheme(theme) {
+  document.body.classList.toggle("theme-dark", theme === "dark");
+}
+function getStoredTheme() {
+  try {
+    return localStorage.getItem(THEME_KEY) || "light";
+  } catch (e) {
+    return "light";
+  }
+}
+function setStoredTheme(theme) {
+  try {
+    localStorage.setItem(THEME_KEY, theme);
+  } catch (e) {}
+}
+
 let state = {
   ready: false,
   syncStatus: "loading", // loading | saving | synced | error
@@ -394,8 +451,11 @@ let state = {
   newItemRepeat: { despesa: "none", receita: "none" },
   newItemAlreadyDone: { despesa: false, receita: false },
   newItemDraft: { despesa: {}, receita: {} },
+  themePreference: getStoredTheme(),
+  showFabMenu: false,
   openItems: new Set(),
   fluxoCollapsedDates: new Set(),
+  openAccounts: new Set(),
   pendingDoneToggle: null,
   accounts: SEED_ACCOUNTS,
   rate: SEED_RATE,
@@ -403,9 +463,12 @@ let state = {
   receitas: SEED_RECEITAS,
 };
 
+applyTheme(state.themePreference);
+
 /* ------------------------------ helpers ------------------------------ */
 
 const uid = (p) => `${p}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const addDaysStr = (dateStr, days) => {
   const d = new Date(dateStr + "T00:00:00Z");
@@ -874,7 +937,7 @@ function renderHeader() {
   return `
     <header>
       <div>
-        <div class="header-title"><span class="header-logo">R$</span>Controle Financeiro</div>
+        <div class="header-title"><span class="header-logo">R$</span>Controle Financeiro<span class="header-version">v${esc(APP_VERSION)}</span></div>
         <div class="header-subtitle">Brasil · Perú ${syncDotHtml()}</div>
       </div>
       <div class="header-right">
@@ -884,6 +947,23 @@ function renderHeader() {
         </div>
       </div>
     </header>`;
+}
+
+function renderFab() {
+  return `
+    ${state.showFabMenu ? `<div class="fab-backdrop" data-action="close-fab-menu"></div>` : ""}
+    <div class="fab-wrap">
+      ${
+        state.showFabMenu
+          ? `<div class="fab-menu">
+        <button class="fab-menu-item" data-action="fab-new-receita">${ICONS.up} Nova receita</button>
+        <button class="fab-menu-item" data-action="fab-new-despesa">${ICONS.down} Nova despesa</button>
+        <button class="fab-menu-item" data-action="open-transfer-modal">${ICONS.refresh} Transferência entre contas</button>
+      </div>`
+          : ""
+      }
+      <button class="fab-btn ${state.showFabMenu ? "open" : ""}" data-action="toggle-fab-menu" aria-label="Adicionar">${ICONS.plus}</button>
+    </div>`;
 }
 
 function renderDoneDateModal() {
@@ -1121,8 +1201,7 @@ function renderFluxoTab() {
     .filter((r) => (state.fluxoFilterMonth === "todos" ? true : r.date?.slice(5, 7) === state.fluxoFilterMonth))
     .filter((r) => matchesSearch(r.description, state.fluxoSearchText));
 
-  const kpi = mode === "real" ? computeMonthlyKPIs() : null;
-
+  
   return `
     ${rateCardHtml()}
     <div class="segmented">
@@ -1133,30 +1212,6 @@ function renderFluxoTab() {
     ${
       mode === "real"
         ? `
-      <div class="section-label">Este mês</div>
-      <div class="kpi-grid">
-        <div class="kpi-card">
-          <div class="kpi-top"><span class="kpi-label">Saldo acumulado</span><span class="kpi-icon" style="background:var(--gold-dim);color:var(--gold)">${ICONS.wallet}</span></div>
-          <div class="kpi-value">${fmtBRL.format(currentTotals.totalBRL)}</div>
-          <div class="kpi-sub">Saldo total até a data</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-top"><span class="kpi-label">Receitas do mês</span><span class="kpi-icon" style="background:#ecfdf3;color:var(--brl)">${ICONS.up}</span></div>
-          <div class="kpi-value">${fmtBRL.format(kpi.receitasMes.totalBRL)}</div>
-          <div class="kpi-sub">${kpi.receitasDelta === null ? "sem comparação" : `<span class="kpi-delta ${kpi.receitasDelta >= 0 ? "up" : "down"}">${kpi.receitasDelta >= 0 ? "▲" : "▼"} ${Math.abs(kpi.receitasDelta)}%</span> vs anterior`}</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-top"><span class="kpi-label">Despesas do mês</span><span class="kpi-icon" style="background:#fef2f2;color:var(--danger)">${ICONS.down}</span></div>
-          <div class="kpi-value">${fmtBRL.format(kpi.despesasMes.totalBRL)}</div>
-          <div class="kpi-sub">${kpi.despesasDelta === null ? "sem comparação" : `<span class="kpi-delta ${kpi.despesasDelta <= 0 ? "up" : "down"}">${kpi.despesasDelta >= 0 ? "▲" : "▼"} ${Math.abs(kpi.despesasDelta)}%</span> vs anterior`}</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-top"><span class="kpi-label">Economia do mês</span><span class="kpi-icon" style="background:var(--gold-dim);color:var(--gold)">$</span></div>
-          <div class="kpi-value" style="color:${kpi.economiaMes < 0 ? "var(--danger)" : "var(--text)"}">${fmtBRL.format(kpi.economiaMes)}</div>
-          <div class="kpi-sub"><span class="kpi-delta ${kpi.taxaPoupanca >= 0 ? "up" : "down"}">${kpi.taxaPoupanca}%</span> taxa de poupança</div>
-        </div>
-      </div>
-
       <div class="section-label">Saldo atual · ${fmtDate(today)}</div>
       <div class="balance-grid">
         ${[...accounts.BRL, ...accounts.PEN]
@@ -1173,15 +1228,6 @@ function renderFluxoTab() {
         <div><span class="total-strip-label">Total R$</span><span class="total-strip-value" style="color:var(--brl)">${fmtBRL.format(currentTotals.brl)}</span></div>
         <div><span class="total-strip-label">Total S/</span><span class="total-strip-value" style="color:var(--pen)">${fmtPEN.format(currentTotals.pen)}</span></div>
         <div><span class="total-strip-label">Total geral (R$)</span><span class="total-strip-value" style="color:var(--gold)">${fmtBRL.format(currentTotals.totalBRL)}</span></div>
-      </div>
-
-      <div class="dashboard-grid" style="margin-top:14px">
-        <div class="chart-card">
-          <div class="chart-card-title">Evolução do Saldo</div>
-          <div class="chart-card-sub">Saldo acumulado nos últimos 12 meses</div>
-          ${buildBalanceChart(buildMonthlyChartData("real"))}
-        </div>
-        ${renderExpensesByAccountCard()}
       </div>`
         : ""
     }
@@ -1709,19 +1755,13 @@ function changePasswordFormHtml() {
 }
 
 function renderContasTab() {
-  const accountNames = [...state.accounts.BRL, ...state.accounts.PEN].map((a) => a.name);
   return `
     ${accountGroupHtml("Contas em Reais (R$)", "BRL", state.accounts.BRL)}
     ${accountGroupHtml("Contas em Soles (PEN)", "PEN", state.accounts.PEN)}
-    ${
-      accountNames.length >= 2
-        ? `<button class="add-btn" data-action="open-transfer-modal" style="width:100%;justify-content:center;margin-bottom:18px">${ICONS.refresh} Transferir entre contas</button>`
-        : ""
-    }
     <div class="section-label">Backup manual</div>
     <div class="backup-row">
-      <button class="backup-btn" data-action="export-data">${ICONS.download} Exportar dados (JSON)</button>
-      <button class="backup-btn" data-action="import-data">${ICONS.upload} Importar dados (JSON)</button>
+      <button class="backup-btn" data-action="export-data">${ICONS.download} Exportar (JSON)</button>
+      <button class="backup-btn" data-action="import-data">${ICONS.upload} Importar (JSON)</button>
     </div>
     <input type="file" id="import-file-input" accept="application/json" style="display:none"/>
     <div class="section-label">Planilha (CSV)</div>
@@ -1731,6 +1771,11 @@ function renderContasTab() {
     </div>
     <input type="file" id="import-csv-input" accept=".csv,text/csv" style="display:none"/>
     <div style="font-size:11px;color:var(--text-dim);margin-top:2px">O CSV exporta contas, câmbio, despesas e receitas. Ao importar: despesas/receitas são somadas; contas com o mesmo nome são atualizadas (saldo/data), contas novas são criadas.</div>
+    <div class="section-label">Aparência</div>
+    <div class="segmented" style="margin-bottom:18px">
+      <button class="${state.themePreference === "light" ? "active" : ""}" data-action="set-theme" data-theme="light">☀️ Claro</button>
+      <button class="${state.themePreference === "dark" ? "active" : ""}" data-action="set-theme" data-theme="dark">🌙 Escuro</button>
+    </div>
     <div class="section-label">Sessão</div>
     <div class="rate-card">
       <div class="rate-text" style="margin-bottom:10px">Conectado como ${esc(currentUser?.email || "")}</div>
@@ -1740,7 +1785,7 @@ function renderContasTab() {
       </div>
       ${state.showChangePasswordForm ? changePasswordFormHtml() : ""}
     </div>
-    <div style="text-align:center;font-size:10.5px;color:var(--text-dim);margin-top:14px">Versão do app: ${esc(APP_BUILD)}</div>`;
+    <div style="text-align:center;font-size:10.5px;color:var(--text-dim);margin-top:14px">Versão do app: v${esc(APP_VERSION)} (build ${esc(APP_BUILD)})</div>`;
 }
 
 function accountGroupHtml(title, currency, accounts) {
@@ -1748,24 +1793,52 @@ function accountGroupHtml(title, currency, accounts) {
     <div style="margin-bottom:22px">
       <div class="section-label">${title}</div>
       ${accounts
-        .map(
-          (a) => `
-        <div class="account-card">
-          <div class="field-row"><div class="field-label">Nome</div>
-            <input type="text" value="${esc(a.name)}" data-edit-acc="name" data-currency="${currency}" data-id="${a.id}"/></div>
-          <div class="field-row"><div class="field-label">Saldo inicial (${currency === "PEN" ? "S/" : "R$"})</div>
-            <input type="number" step="0.01" value="${a.initial}" data-edit-acc="initial" data-currency="${currency}" data-id="${a.id}"/></div>
-          <div class="field-row"><div class="field-label">Data do saldo inicial</div>
-            <input type="date" value="${a.initialDate}" data-edit-acc="initialDate" data-currency="${currency}" data-id="${a.id}"/></div>
-          <button class="delete-btn" data-action="delete-account" data-currency="${currency}" data-id="${a.id}">${ICONS.trash} Remover conta</button>
-        </div>`
-        )
+        .map((a) => {
+          const key = `${currency}-${a.id}`;
+          const open = state.openAccounts.has(key);
+          return `
+        <div class="account-card" style="padding:0">
+          <div class="item-top" data-action="toggle-account-open" data-currency="${currency}" data-id="${a.id}">
+            <div class="item-mid">
+              <div class="ledger-desc">${esc(a.name)}</div>
+              <div class="ledger-meta">Saldo inicial: ${fmt(a.initial, currency)} · ${fmtDate(a.initialDate)}</div>
+            </div>
+            <div class="chevron ${open ? "open" : ""}">${ICONS.chevron}</div>
+          </div>
+          ${
+            open
+              ? `<div class="item-detail">
+            <div class="field-row"><div class="field-label">Nome</div>
+              <input type="text" value="${esc(a.name)}" data-edit-acc="name" data-currency="${currency}" data-id="${a.id}"/></div>
+            <div class="field-row"><div class="field-label">Saldo inicial (${currency === "PEN" ? "S/" : "R$"})</div>
+              <input type="number" step="0.01" value="${a.initial}" data-edit-acc="initial" data-currency="${currency}" data-id="${a.id}"/></div>
+            <div class="field-row"><div class="field-label">Data do saldo inicial</div>
+              <input type="date" value="${a.initialDate}" data-edit-acc="initialDate" data-currency="${currency}" data-id="${a.id}"/></div>
+            <button class="delete-btn" data-action="delete-account" data-currency="${currency}" data-id="${a.id}">${ICONS.trash} Remover conta</button>
+          </div>`
+              : ""
+          }
+        </div>`;
+        })
         .join("")}
       ${accounts.length < 4 ? `<button class="add-account-btn" data-action="add-account" data-currency="${currency}">${ICONS.plus} Adicionar conta</button>` : ""}
     </div>`;
 }
 
 /* ------------------------------ main render ------------------------------ */
+
+function adjustStickyNavOffset() {
+  const shell = document.getElementById("app-shell");
+  const headerEl = shell.querySelector("header");
+  const navEl = shell.querySelector("nav.tab-bar");
+  if (!headerEl || !navEl) return;
+  if (window.innerWidth >= 1000) {
+    navEl.style.top = `${headerEl.offsetHeight}px`;
+  } else {
+    navEl.style.top = "";
+  }
+}
+window.addEventListener("resize", () => adjustStickyNavOffset());
 
 function render() {
   const shell = document.getElementById("app-shell");
@@ -1792,8 +1865,9 @@ function render() {
   else if (state.tab === "receitas") body = renderLancamentosTab("receita");
   else if (state.tab === "contas") body = renderContasTab();
 
-  shell.innerHTML = `${renderHeader()}<main>${body}</main>${renderTabBar()}${renderDoneDateModal()}${renderTransferModal()}`;
+  shell.innerHTML = `${renderHeader()}<main>${body}</main>${renderTabBar()}${renderFab()}${renderDoneDateModal()}${renderTransferModal()}`;
   bindEvents();
+  adjustStickyNavOffset();
 
   const newMain = shell.querySelector("main");
   if (newMain && prevScrollTop) newMain.scrollTop = prevScrollTop;
@@ -1985,6 +2059,15 @@ function bindEvents() {
     })
   );
 
+  shell.querySelectorAll('[data-action="toggle-account-open"]').forEach((row) =>
+    row.addEventListener("click", () => {
+      const key = `${row.dataset.currency}-${row.dataset.id}`;
+      if (state.openAccounts.has(key)) state.openAccounts.delete(key);
+      else state.openAccounts.add(key);
+      render();
+    })
+  );
+
   shell.querySelectorAll('[data-action="toggle-date-group"]').forEach((btn) =>
     btn.addEventListener("click", () => {
       const date = btn.dataset.date;
@@ -2078,6 +2161,7 @@ function bindEvents() {
         date: todayStr(),
       };
       state.transferError = "";
+      state.showFabMenu = false;
       render();
     });
 
@@ -2236,6 +2320,7 @@ function bindEvents() {
       const newAcc = { id: uid("acc"), name: "Nova conta", initial: 0, initialDate: todayStr() };
       applyLocal(() => {
         state.accounts[currency].push(newAcc);
+        state.openAccounts.add(`${currency}-${newAcc.id}`);
       });
       commitOps([{ ref: contaDocRef(newAcc.id), type: "set", data: { ...newAcc, currency } }]);
     })
@@ -2381,6 +2466,45 @@ function bindEvents() {
       reader.readAsText(file, "utf-8");
     });
   }
+
+  shell.querySelectorAll('[data-action="set-theme"]').forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const theme = btn.dataset.theme;
+      state.themePreference = theme;
+      applyTheme(theme);
+      setStoredTheme(theme);
+      render();
+    })
+  );
+
+  shell.querySelectorAll('[data-action="toggle-fab-menu"]').forEach((btn) =>
+    btn.addEventListener("click", () => {
+      state.showFabMenu = !state.showFabMenu;
+      render();
+    })
+  );
+  shell.querySelectorAll('[data-action="close-fab-menu"]').forEach((el) =>
+    el.addEventListener("click", () => {
+      state.showFabMenu = false;
+      render();
+    })
+  );
+  shell.querySelectorAll('[data-action="fab-new-despesa"]').forEach((btn) =>
+    btn.addEventListener("click", () => {
+      state.tab = "despesas";
+      state.showDespesaForm = true;
+      state.showFabMenu = false;
+      render();
+    })
+  );
+  shell.querySelectorAll('[data-action="fab-new-receita"]').forEach((btn) =>
+    btn.addEventListener("click", () => {
+      state.tab = "receitas";
+      state.showReceitaForm = true;
+      state.showFabMenu = false;
+      render();
+    })
+  );
 
   const logoutBtn = shell.querySelector('[data-action="logout"]');
   if (logoutBtn) logoutBtn.addEventListener("click", () => auth.signOut());
