@@ -6,7 +6,7 @@
 <title>Controle Financeiro</title>
 <link rel="manifest" href="manifest.json" />
 <meta name="theme-color" content="#ffffff" />
-<meta name="app-build" content="2026-09-19.9" />
+<meta name="app-build" content="2026-09-19.10" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="Financeiro" />
@@ -149,7 +149,7 @@
   .chart-card-sub { font-size: 11.5px; color: var(--text-dim); margin-bottom: 10px; }
   .chart-svg-wrap { position: relative; width: 100%; }
   .chart-svg-wrap svg { touch-action: none; }
-  .balance-chart-svg { width: 100%; height: 280px; display: block; overflow: visible; }
+  .balance-chart-svg { width: 100%; height: auto; aspect-ratio: 400 / 280; display: block; overflow: visible; }
   .chart-tooltip {
     position: absolute; pointer-events: none; background: #1f2430; border: 1px solid rgba(255,255,255,0.12);
     border-radius: 6px; padding: 5px 9px; font-size: 11px; font-family: 'IBM Plex Mono', monospace;
@@ -321,7 +321,6 @@
     main { padding: 22px 26px 26px; }
     .kpi-grid { grid-template-columns: repeat(4, 1fr); }
     .balance-grid { grid-template-columns: repeat(3, 1fr); }
-    .balance-chart-svg { height: 320px; }
   }
 
   @media (min-width: 1000px) {
@@ -329,7 +328,6 @@
     body { overflow-y: auto; }
     main { overflow-y: visible; padding: 26px 32px 40px; order: 2; }
     header { padding-left: 32px; padding-right: 32px; position: sticky; top: 0; z-index: 30; order: 0; }
-    .balance-chart-svg { height: 380px; }
 
     /* barra de navegação some embaixo e vira uma barra horizontal no topo, logo abaixo do cabeçalho */
     nav.tab-bar {
@@ -362,7 +360,7 @@
  *  Sincroniza via Firebase Firestore (tempo real + persistência offline).
  * ---------------------------------------------------------------------- */
 
-const APP_VERSION = "1.6"; // versão curta mostrada ao lado do título — suba junto com o app-build lá no <head>
+const APP_VERSION = "1.7"; // versão curta mostrada ao lado do título — suba junto com o app-build lá no <head>
 const APP_BUILD = document.querySelector('meta[name="app-build"]')?.content || "desconhecida";
 
 const firebaseConfig = {
@@ -1445,7 +1443,7 @@ function buildBalanceChart(data) {
 
   return `
     <div class="chart-svg-wrap" data-chart-points='${pointsPayload}' data-chart-w="${W}" data-chart-h="${H}">
-      <svg class="balance-chart-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      <svg class="balance-chart-svg" viewBox="0 0 ${W} ${H}">
         <defs>
           <clipPath id="${clipId}-above"><rect x="0" y="0" width="${W}" height="${zeroY.toFixed(1)}"/></clipPath>
           <clipPath id="${clipId}-below"><rect x="0" y="${zeroY.toFixed(1)}" width="${W}" height="${(H - zeroY).toFixed(1)}"/></clipPath>
