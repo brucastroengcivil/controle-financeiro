@@ -6,7 +6,7 @@
 <title>Controle Financeiro</title>
 <link rel="manifest" href="manifest.json" />
 <meta name="theme-color" content="#ffffff" />
-<meta name="app-build" content="2026-09-19.10" />
+<meta name="app-build" content="2026-09-27.1" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="Financeiro" />
@@ -360,7 +360,7 @@
  *  Sincroniza via Firebase Firestore (tempo real + persistência offline).
  * ---------------------------------------------------------------------- */
 
-const APP_VERSION = "1.7"; // versão curta mostrada ao lado do título — suba junto com o app-build lá no <head>
+const APP_VERSION = "1.8"; // versão curta mostrada ao lado do título — suba junto com o app-build lá no <head>
 const APP_BUILD = document.querySelector('meta[name="app-build"]')?.content || "desconhecida";
 
 const firebaseConfig = {
@@ -410,6 +410,9 @@ const SEED_ACCOUNTS = {
   PEN: [],
 };
 const SEED_RATE = 0.75;
+// desconto padrão de "pior caso" (IOF de entrada 0,38% + spread/taxas de operação de câmbio)
+// aplicado ao converter saldo em soles para reais nos totais. Editável pelo usuário.
+const SEED_TAX_PCT = 5.5;
 const SEED_DESPESAS = [];
 const SEED_RECEITAS = [];
 
@@ -476,6 +479,7 @@ let state = {
   pendingDoneToggle: null,
   accounts: SEED_ACCOUNTS,
   rate: SEED_RATE,
+  worstCaseTaxPct: SEED_TAX_PCT,
   despesas: SEED_DESPESAS,
   receitas: SEED_RECEITAS,
 };
@@ -530,6 +534,7 @@ function buildCsvExport() {
   });
 
   rows.push(["Câmbio", "1 PEN em BRL", "", "", "", "", "", "", "", "", state.rate]);
+  rows.push(["ImpostoPiorCaso", "% descontado do S/ ao converter para R$", "", "", "", "", "", "", "", "", state.worstCaseTaxPct]);
 
   state.despesas.forEach((d) => {
     rows.push(["Despesa", d.description, d.account, accountIndex[d.account]?.currency || "BRL", d.value, d.dueDate, d.done ? "Pago" : "Pendente", d.doneDate || "", "", "", ""]);
@@ -586,7 +591,7 @@ function parseCsvLines(text) {
 
 function parseCsvImport(text) {
   const rows = parseCsvLines(text);
-  if (rows.length === 0) return { novasDespesas: [], novasReceitas: [], contasUpsert: [], novaTaxa: null, ignoradas: 0 };
+  if (rows.length === 0) return { novasDespesas: [], novasReceitas: [], contasUpsert: [], novaTaxa: null, novoTaxPct: null, ignoradas: 0 };
 
   const header = rows[0].map((h) => h.trim().toLowerCase());
   const idx = {
@@ -607,6 +612,7 @@ function parseCsvImport(text) {
   const novasReceitas = [];
   const contasUpsert = [];
   let novaTaxa = null;
+  let novoTaxPct = null;
   let ignoradas = 0;
 
   for (let i = 1; i < rows.length; i++) {
@@ -629,6 +635,12 @@ function parseCsvImport(text) {
     if (tipo === "câmbio" || tipo === "cambio") {
       const taxa = parseFloat((r[idx.taxa] || "").replace(",", "."));
       if (!isNaN(taxa) && taxa > 0) novaTaxa = taxa;
+      continue;
+    }
+
+    if (tipo === "impostopiorcaso") {
+      const pct = parseFloat((r[idx.taxa] || "").replace(",", "."));
+      if (!isNaN(pct) && pct >= 0) novoTaxPct = pct;
       continue;
     }
 
@@ -660,7 +672,7 @@ function parseCsvImport(text) {
     else novasDespesas.push(item);
   }
 
-  return { novasDespesas, novasReceitas, contasUpsert, novaTaxa, ignoradas };
+  return { novasDespesas, novasReceitas, contasUpsert, novaTaxa, novoTaxPct, ignoradas };
 }
 
 const fmtBRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
@@ -702,10 +714,21 @@ function computeBalancesAt(accounts, despesas, receitas, mode, atDate) {
   return bal;
 }
 
-function totalsFromBalances(accounts, bal, rate) {
+function totalsFromBalances(accounts, bal, rate, taxPct) {
   const brl = accounts.BRL.reduce((s, a) => s + (bal[a.name] || 0), 0);
   const pen = accounts.PEN.reduce((s, a) => s + (bal[a.name] || 0), 0);
-  return { brl, pen, totalBRL: brl + pen * rate };
+  const penBRLBruto = pen * rate;
+  // "pior caso": se o saldo em soles for positivo, aplica o desconto de impostos/taxas
+  // de transferência (IOF + spread de câmbio) que incidiriam ao trazer esse valor para o
+  // Brasil. Saldo negativo (dívida) em PEN não recebe desconto — não faz sentido nesse caso.
+  const pct = typeof taxPct === "number" ? taxPct : 0;
+  const penBRLLiquido = pen > 0 ? penBRLBruto * (1 - pct / 100) : penBRLBruto;
+  return {
+    brl,
+    pen,
+    totalBRL: brl + penBRLBruto,
+    totalBRLLiquido: brl + penBRLLiquido,
+  };
 }
 
 /* ------------------------------ persistence (Firestore, por registro) ------------------------------ */
@@ -826,9 +849,9 @@ async function migrateIfNeeded() {
   const alreadyHasData = existingContas.size > 0 || existingDespesas.size > 0 || existingReceitas.size > 0;
   if (alreadyHasData) return;
 
-  // usuário genuinamente novo: só grava a taxa de câmbio padrão. Nenhuma conta é criada
-  // automaticamente — quem decide quais contas existem é a pessoa, na aba Contas.
-  await docRef.set({ rate: state.rate, rateUpdatedAt: null });
+  // usuário genuinamente novo: só grava a taxa de câmbio e o desconto padrão. Nenhuma
+  // conta é criada automaticamente — quem decide quais contas existem é a pessoa, na aba Contas.
+  await docRef.set({ rate: state.rate, rateUpdatedAt: null, worstCaseTaxPct: state.worstCaseTaxPct });
 }
 
 function checkAllPartsLoaded() {
@@ -846,6 +869,7 @@ function attachFirestoreListeners() {
       const data = snapshot.data() || {};
       if (typeof data.rate === "number") state.rate = data.rate;
       if (data.rateUpdatedAt) state.rateUpdatedAt = data.rateUpdatedAt;
+      if (typeof data.worstCaseTaxPct === "number") state.worstCaseTaxPct = data.worstCaseTaxPct;
       state.syncStatus = snapshot.metadata.hasPendingWrites ? "saving" : snapshot.metadata.fromCache ? "offline" : "synced";
       loadedParts.rate = true;
       checkAllPartsLoaded();
@@ -1206,7 +1230,7 @@ function renderFluxoTab() {
   const mode = state.fluxoMode;
 
   const currentBalances = computeBalancesAt(accounts, state.despesas, state.receitas, "real", today);
-  const currentTotals = totalsFromBalances(accounts, currentBalances, state.rate);
+  const currentTotals = totalsFromBalances(accounts, currentBalances, state.rate, state.worstCaseTaxPct);
 
   let rows = [];
   state.despesas.forEach((d) => {
@@ -1230,6 +1254,7 @@ function renderFluxoTab() {
   
   return `
     ${rateCardHtml()}
+    ${taxCardHtml()}
     <div class="segmented">
       <button class="${mode === "real" ? "active" : ""}" data-action="set-mode" data-mode="real">Real</button>
       <button class="${mode === "previsto" ? "active" : ""}" data-action="set-mode" data-mode="previsto">Previsto</button>
@@ -1253,7 +1278,10 @@ function renderFluxoTab() {
       <div class="total-strip">
         <div><span class="total-strip-label">Total R$</span><span class="total-strip-value" style="color:var(--brl)">${fmtBRL.format(currentTotals.brl)}</span></div>
         <div><span class="total-strip-label">Total S/</span><span class="total-strip-value" style="color:var(--pen)">${fmtPEN.format(currentTotals.pen)}</span></div>
-        <div><span class="total-strip-label">Total geral (R$)</span><span class="total-strip-value" style="color:var(--gold)">${fmtBRL.format(currentTotals.totalBRL)}</span></div>
+        <div><span class="total-strip-label">Total geral líquido (R$)</span><span class="total-strip-value" style="color:var(--gold)">${fmtBRL.format(currentTotals.totalBRLLiquido)}</span></div>
+      </div>
+      <div style="text-align:right;font-size:11px;color:var(--text-dim);margin-top:2px">
+        Sem descontos: ${fmtBRL.format(currentTotals.totalBRL)} · desconto de ${state.worstCaseTaxPct}% aplicado sobre o saldo em soles (pior caso de impostos/taxas de transferência)
       </div>`
         : ""
     }
@@ -1368,11 +1396,11 @@ function buildMonthlyChartData(mode) {
     if (mode === "real" && targetDate > todayIso) targetDate = todayIso;
     if (mode === "previsto" && targetDate < todayIso) targetDate = todayIso;
     const bal = computeBalancesAt(state.accounts, state.despesas, state.receitas, mode, targetDate);
-    const t = totalsFromBalances(state.accounts, bal, state.rate);
+    const t = totalsFromBalances(state.accounts, bal, state.rate, state.worstCaseTaxPct);
     return {
       date: targetDate,
       label: MONTH_ABBR[month],
-      total: Math.round(t.totalBRL * 100) / 100,
+      total: Math.round(t.totalBRLLiquido * 100) / 100,
     };
   });
 }
@@ -1606,6 +1634,21 @@ function rateCardHtml() {
       <div class="rate-meta-row">
         <span class="rate-meta-text" style="color:${state.rateFetchError ? "var(--danger)" : "var(--text-dim)"}">${statusText}</span>
         <button class="link-btn" data-action="refresh-rate" ${state.rateFetching ? "disabled" : ""}>Atualizar agora</button>
+      </div>
+    </div>`;
+}
+
+function taxCardHtml() {
+  return `
+    <div class="rate-card">
+      <div class="rate-label">🧾 Imposto/taxas de transferência (pior caso)</div>
+      <div class="rate-row">
+        <span class="rate-text">Desconto sobre o S/ →</span>
+        <input type="number" step="0.1" min="0" max="100" style="width:70px;text-align:right" value="${state.worstCaseTaxPct}" data-action="set-tax-pct"/>
+        <span class="rate-text">%</span>
+      </div>
+      <div class="rate-meta-row">
+        <span class="rate-meta-text" style="color:var(--text-dim)">Aplicado ao total geral e ao gráfico Previsto, simulando IOF + taxas ao trazer o valor para o Brasil.</span>
       </div>
     </div>`;
 }
@@ -1983,6 +2026,16 @@ function bindEvents() {
 
   const refreshRateBtn = shell.querySelector('[data-action="refresh-rate"]');
   if (refreshRateBtn) refreshRateBtn.addEventListener("click", () => fetchExchangeRate(true));
+
+  const taxPctInput = shell.querySelector('[data-action="set-tax-pct"]');
+  if (taxPctInput)
+    taxPctInput.addEventListener("change", (e) => {
+      let newPct = parseFloat(e.target.value);
+      if (isNaN(newPct) || newPct < 0) newPct = 0;
+      if (newPct > 100) newPct = 100;
+      applyLocal(() => (state.worstCaseTaxPct = newPct));
+      commitOps([{ ref: docRef, type: "set", data: { worstCaseTaxPct: newPct }, merge: true }]);
+    });
 
   const forceUpdateBtn = shell.querySelector('[data-action="force-update"]');
   if (forceUpdateBtn) forceUpdateBtn.addEventListener("click", forceUpdateNow);
@@ -2376,7 +2429,11 @@ function bindEvents() {
   const exportBtn = shell.querySelector('[data-action="export-data"]');
   if (exportBtn)
     exportBtn.addEventListener("click", () => {
-      const payload = JSON.stringify({ accounts: state.accounts, rate: state.rate, despesas: state.despesas, receitas: state.receitas }, null, 2);
+      const payload = JSON.stringify(
+        { accounts: state.accounts, rate: state.rate, worstCaseTaxPct: state.worstCaseTaxPct, despesas: state.despesas, receitas: state.receitas },
+        null,
+        2
+      );
       const blob = new Blob([payload], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -2399,6 +2456,7 @@ function bindEvents() {
           const data = JSON.parse(reader.result);
           const newAccounts = data.accounts || state.accounts;
           const newRate = typeof data.rate === "number" ? data.rate : state.rate;
+          const newTaxPct = typeof data.worstCaseTaxPct === "number" ? data.worstCaseTaxPct : state.worstCaseTaxPct;
           const newDespesas = data.despesas || state.despesas;
           const newReceitas = data.receitas || state.receitas;
 
@@ -2416,11 +2474,12 @@ function bindEvents() {
           [...(newAccounts.BRL || []).map((a) => ({ ...a, currency: "BRL" })), ...(newAccounts.PEN || []).map((a) => ({ ...a, currency: "PEN" }))].forEach((a) =>
             ops.push({ ref: contaDocRef(a.id), type: "set", data: a })
           );
-          ops.push({ ref: docRef, type: "set", data: { rate: newRate }, merge: true });
+          ops.push({ ref: docRef, type: "set", data: { rate: newRate, worstCaseTaxPct: newTaxPct }, merge: true });
 
           applyLocal(() => {
             state.accounts = newAccounts;
             state.rate = newRate;
+            state.worstCaseTaxPct = newTaxPct;
             state.despesas = newDespesas;
             state.receitas = newReceitas;
           });
@@ -2457,8 +2516,8 @@ function bindEvents() {
       const reader = new FileReader();
       reader.onload = () => {
         try {
-          const { novasDespesas, novasReceitas, contasUpsert, novaTaxa, ignoradas } = parseCsvImport(reader.result);
-          if (novasDespesas.length === 0 && novasReceitas.length === 0 && contasUpsert.length === 0 && novaTaxa === null) {
+          const { novasDespesas, novasReceitas, contasUpsert, novaTaxa, novoTaxPct, ignoradas } = parseCsvImport(reader.result);
+          if (novasDespesas.length === 0 && novasReceitas.length === 0 && contasUpsert.length === 0 && novaTaxa === null && novoTaxPct === null) {
             alert("Nenhuma linha válida encontrada no CSV.");
             return;
           }
@@ -2490,6 +2549,11 @@ function bindEvents() {
               ops.push({ ref: docRef, type: "set", data: { rate: novaTaxa }, merge: true });
             }
 
+            if (novoTaxPct !== null) {
+              state.worstCaseTaxPct = novoTaxPct;
+              ops.push({ ref: docRef, type: "set", data: { worstCaseTaxPct: novoTaxPct }, merge: true });
+            }
+
             state.despesas.push(...novasDespesas);
             state.receitas.push(...novasReceitas);
           });
@@ -2501,6 +2565,7 @@ function bindEvents() {
           const partes = [];
           if (contasUpsert.length) partes.push(`${contasUpsert.length} conta(s)`);
           if (novaTaxa !== null) partes.push("taxa de câmbio");
+          if (novoTaxPct !== null) partes.push("imposto pior caso");
           if (novasDespesas.length) partes.push(`${novasDespesas.length} despesa(s)`);
           if (novasReceitas.length) partes.push(`${novasReceitas.length} receita(s)`);
           alert(`Importado: ${partes.join(", ")}.${ignoradas ? ` ${ignoradas} linha(s) ignorada(s) por dados incompletos.` : ""}`);
