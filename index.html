@@ -6,7 +6,7 @@
 <title>Controle Financeiro</title>
 <link rel="manifest" href="manifest.json" />
 <meta name="theme-color" content="#ffffff" />
-<meta name="app-build" content="2026-09-29.2" />
+<meta name="app-build" content="2026-09-29.3" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="Financeiro" />
@@ -360,7 +360,7 @@
  *  Sincroniza via Firebase Firestore (tempo real + persistência offline).
  * ---------------------------------------------------------------------- */
 
-const APP_VERSION = "1.9.2"; // versão curta mostrada ao lado do título — suba junto com o app-build lá no <head>
+const APP_VERSION = "1.10"; // versão curta mostrada ao lado do título — suba junto com o app-build lá no <head>
 const APP_BUILD = document.querySelector('meta[name="app-build"]')?.content || "desconhecida";
 
 const firebaseConfig = {
@@ -1405,6 +1405,49 @@ function buildMonthlyChartData(mode) {
   });
 }
 
+/* acha o menor/maior saldo EXATO dentro do período (não só o saldo no fim de cada mês):
+   avalia o saldo logo após cada lançamento (despesa/receita) que cai dentro da janela,
+   já que é só nessas datas que o saldo muda — assim pega o dia exato da menor "queda",
+   mesmo que ela se recupere antes do fim do mês. */
+function findExactExtremes(mode) {
+  const today = new Date();
+  const todayIso = todayStr();
+  let startDate, endDate;
+  if (mode === "previsto") {
+    startDate = todayIso;
+    const endD = new Date(Date.UTC(today.getFullYear(), today.getMonth() + 12, 0));
+    endDate = endD.toISOString().slice(0, 10);
+  } else {
+    const startD = new Date(Date.UTC(today.getFullYear(), today.getMonth() - 11, 1));
+    startDate = startD.toISOString().slice(0, 10);
+    endDate = todayIso;
+  }
+
+  const dateSet = new Set([startDate, endDate]);
+  state.despesas.forEach((d) => {
+    const date = mode === "real" ? (d.done ? d.doneDate || d.dueDate : null) : d.dueDate;
+    if (date && date >= startDate && date <= endDate) dateSet.add(date);
+  });
+  state.receitas.forEach((r) => {
+    const date = mode === "real" ? (r.done ? r.doneDate || r.dueDate : null) : r.dueDate;
+    if (date && date >= startDate && date <= endDate) dateSet.add(date);
+  });
+
+  const points = [...dateSet].sort().map((date) => {
+    const bal = computeBalancesAt(state.accounts, state.despesas, state.receitas, mode, date);
+    const t = totalsFromBalances(state.accounts, bal, state.rate, state.worstCaseTaxPct);
+    return { date, total: Math.round(t.totalBRLLiquido * 100) / 100 };
+  });
+
+  let min = points[0],
+    max = points[0];
+  for (const p of points) {
+    if (p.total < min.total) min = p;
+    if (p.total > max.total) max = p;
+  }
+  return { min, max };
+}
+
 function findExtremes(data) {
   let min = data[0], max = data[0];
   for (const d of data) {
@@ -1577,7 +1620,7 @@ function renderGraficoTab() {
   const mode = state.graficoMode;
   const data = buildMonthlyChartData(mode);
 
-  const { min, max } = findExtremes(data);
+  const { min, max } = findExactExtremes(mode);
 
   return `
     <div class="segmented">
@@ -1590,7 +1633,7 @@ function renderGraficoTab() {
     <div class="extreme-card" style="border-color:${min.total < 0 ? "var(--danger)" : "var(--border)"}">
       <div>
         <div class="extreme-card-value" style="color:${min.total < 0 ? "var(--danger)" : "var(--brl)"}">${fmtBRL.format(min.total)}</div>
-        <div class="extreme-card-date">${min.label}${min.total < 0 ? " · saldo negativo" : " · ainda positivo"}</div>
+        <div class="extreme-card-date">${fmtDate(min.date)}${min.total < 0 ? " · saldo negativo" : " · ainda positivo"}</div>
       </div>
     </div>
 
@@ -1601,6 +1644,9 @@ function renderGraficoTab() {
       <div><span class="total-strip-label">Menor saldo</span><span class="total-strip-value" style="color:${min.total < 0 ? "var(--danger)" : "var(--brl)"}">${fmtBRL.format(min.total)}</span></div>
       <div><span class="total-strip-label">Maior saldo</span><span class="total-strip-value" style="color:var(--brl)">${fmtBRL.format(max.total)}</span></div>
       <div><span class="total-strip-label">Saldo hoje</span><span class="total-strip-value" style="color:var(--gold)">${fmtBRL.format(data.find((d) => d.date === todayStr())?.total ?? data[data.length - 1].total)}</span></div>
+    </div>
+    <div style="text-align:right;font-size:11px;color:var(--text-dim);margin-top:2px">
+      Menor saldo em ${fmtDate(min.date)} · Maior saldo em ${fmtDate(max.date)}
     </div>`;
 }
 
