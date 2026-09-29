@@ -6,7 +6,7 @@
 <title>Controle Financeiro</title>
 <link rel="manifest" href="manifest.json" />
 <meta name="theme-color" content="#ffffff" />
-<meta name="app-build" content="2026-09-27.1" />
+<meta name="app-build" content="2026-09-28.1" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="Financeiro" />
@@ -360,7 +360,7 @@
  *  Sincroniza via Firebase Firestore (tempo real + persistência offline).
  * ---------------------------------------------------------------------- */
 
-const APP_VERSION = "1.8"; // versão curta mostrada ao lado do título — suba junto com o app-build lá no <head>
+const APP_VERSION = "1.9"; // versão curta mostrada ao lado do título — suba junto com o app-build lá no <head>
 const APP_BUILD = document.querySelector('meta[name="app-build"]')?.content || "desconhecida";
 
 const firebaseConfig = {
@@ -1677,8 +1677,22 @@ function renderLancamentosTab(kind) {
     });
 
   const doneLabel = isDespesa ? "Pago" : "Recebido";
+  const pendingLabel = "Pendente";
   const doneDateLabel = isDespesa ? "Data em que pagou" : "Data em que recebeu";
   const title = isDespesa ? "📉 Despesas" : "📈 Receitas";
+
+  const sumByCurrency = (list) =>
+    list.reduce(
+      (acc, i) => {
+        const cur = accountIndex[i.account]?.currency || "BRL";
+        if (cur === "PEN") acc.pen += i.value;
+        else acc.brl += i.value;
+        return acc;
+      },
+      { brl: 0, pen: 0 }
+    );
+  const doneTotals = sumByCurrency(filtered.filter((i) => i.done));
+  const pendingTotals = sumByCurrency(filtered.filter((i) => !i.done));
 
   return `
     <input type="text" id="${searchId}" class="search-input" data-action="search-text" data-key="${searchKey}"
@@ -1698,7 +1712,20 @@ function renderLancamentosTab(kind) {
     ${state[showFormKey] ? newItemFormHtml(kind, accountNames) : ""}
 
     <div class="section-label">${title}${filtered.length ? ` · ${filtered.length}` : ""}</div>
-    <div class="ledger-list">
+    ${
+      filtered.length
+        ? `
+    <div class="total-strip">
+      <div><span class="total-strip-label">${doneLabel} R$</span><span class="total-strip-value" style="color:var(--brl)">${fmtBRL.format(doneTotals.brl)}</span></div>
+      <div><span class="total-strip-label">${doneLabel} S/</span><span class="total-strip-value" style="color:var(--pen)">${fmtPEN.format(doneTotals.pen)}</span></div>
+    </div>
+    <div class="total-strip" style="margin-top:6px">
+      <div><span class="total-strip-label">${pendingLabel} R$</span><span class="total-strip-value" style="color:var(--brl)">${fmtBRL.format(pendingTotals.brl)}</span></div>
+      <div><span class="total-strip-label">${pendingLabel} S/</span><span class="total-strip-value" style="color:var(--pen)">${fmtPEN.format(pendingTotals.pen)}</span></div>
+    </div>`
+        : ""
+    }
+    <div class="ledger-list" style="margin-top:12px">
       ${
         filtered.length === 0
           ? `<div class="empty-state">Nada por aqui ainda.</div>`
