@@ -6,7 +6,7 @@
 <title>Controle Financeiro</title>
 <link rel="manifest" href="manifest.json" />
 <meta name="theme-color" content="#ffffff" />
-<meta name="app-build" content="2026-09-29.1" />
+<meta name="app-build" content="2026-09-29.2" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="Financeiro" />
@@ -360,7 +360,7 @@
  *  Sincroniza via Firebase Firestore (tempo real + persistência offline).
  * ---------------------------------------------------------------------- */
 
-const APP_VERSION = "1.9.1"; // versão curta mostrada ao lado do título — suba junto com o app-build lá no <head>
+const APP_VERSION = "1.9.2"; // versão curta mostrada ao lado do título — suba junto com o app-build lá no <head>
 const APP_BUILD = document.querySelector('meta[name="app-build"]')?.content || "desconhecida";
 
 const firebaseConfig = {
@@ -2424,6 +2424,28 @@ function bindEvents() {
       const acc = state.accounts[currency].find((a) => a.id === id);
       if (!acc) return;
       const newValue = editAcc === "initial" ? parseFloat(e.target.value) || 0 : e.target.value;
+
+      if (editAcc === "name" && newValue !== acc.name) {
+        // renomear uma conta não pode "perder" o histórico: toda despesa/receita
+        // (inclusive transferências) que apontava para o nome antigo precisa passar
+        // a apontar para o nome novo, senão o saldo e os lançamentos ficam órfãos.
+        const oldName = acc.name;
+        const despesasAfetadas = state.despesas.filter((d) => d.account === oldName);
+        const receitasAfetadas = state.receitas.filter((r) => r.account === oldName);
+        applyLocal(() => {
+          acc.name = newValue;
+          despesasAfetadas.forEach((d) => (d.account = newValue));
+          receitasAfetadas.forEach((r) => (r.account = newValue));
+        });
+        const ops = [
+          { ref: contaDocRef(id), type: "set", data: { name: newValue }, merge: true },
+          ...despesasAfetadas.map((d) => ({ ref: despesaDocRef(d.id), type: "set", data: { account: newValue }, merge: true })),
+          ...receitasAfetadas.map((r) => ({ ref: receitaDocRef(r.id), type: "set", data: { account: newValue }, merge: true })),
+        ];
+        commitOps(ops);
+        return;
+      }
+
       applyLocal(() => {
         acc[editAcc] = newValue;
       });
