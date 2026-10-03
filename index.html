@@ -6,7 +6,7 @@
 <title>Controle Financeiro</title>
 <link rel="manifest" href="manifest.json" />
 <meta name="theme-color" content="#ffffff" />
-<meta name="app-build" content="2026-10-03.2" />
+<meta name="app-build" content="2026-10-03.3" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="Financeiro" />
@@ -15,6 +15,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
   :root {
@@ -360,7 +361,7 @@
  *  Sincroniza via Firebase Firestore (tempo real + persistência offline).
  * ---------------------------------------------------------------------- */
 
-const APP_VERSION = "1.12"; // versão curta mostrada ao lado do título — suba junto com o app-build lá no <head>
+const APP_VERSION = "1.13"; // versão curta mostrada ao lado do título — suba junto com o app-build lá no <head>
 const APP_BUILD = document.querySelector('meta[name="app-build"]')?.content || "desconhecida";
 
 const firebaseConfig = {
@@ -414,6 +415,11 @@ const SEED_RATE = 0.75;
 // aplicado ao converter saldo em soles para reais nos totais. Editável pelo usuário.
 const SEED_TAX_PCT = 5.5;
 const SEED_DESPESAS = [];
+
+/* ------------------------------ Google Agenda (lembrete de contas a pagar) ------------------------------ */
+const GOOGLE_CLIENT_ID = "1035634621982-kt5lkqtdqf15m2htctt84vgbqqubljkt.apps.googleusercontent.com";
+const GOOGLE_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
+const GOOGLE_CALENDAR_NAME = "Controle Financeiro – Contas a pagar";
 const SEED_RECEITAS = [];
 
 const monthNames = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
@@ -482,6 +488,10 @@ let state = {
   worstCaseTaxPct: SEED_TAX_PCT,
   despesas: SEED_DESPESAS,
   receitas: SEED_RECEITAS,
+  googleCalendarId: null, // persistido no Firestore, pra não criar a agenda de novo a cada sessão
+  googleCalendarConnected: false, // só nesta sessão/navegador (o token do Google não é persistido)
+  googleCalendarSyncing: false,
+  googleCalendarError: false,
 };
 
 applyTheme(state.themePreference);
@@ -810,6 +820,227 @@ function maybeAutoUpdateRate() {
   }
 }
 
+/* ------------------------------ Google Agenda: lembrete de contas a pagar ------------------------------ *
+ * Cria uma agenda própria do Google Calendar ("Controle Financeiro – Contas a pagar") e mantém nela um
+ * evento para cada despesa PENDENTE com data de vencimento, com lembretes 1 dia antes e no dia, às 9h.
+ * Quando a despesa é marcada como paga (ou excluída), o evento correspondente é apagado da agenda. */
+
+let googleTokenClient = null;
+let googleAccessToken = null;
+let googleAccessTokenExpiry = 0; // epoch ms
+let googleSyncDebounceTimer = null;
+
+function initGoogleTokenClient() {
+  if (googleTokenClient || typeof google === "undefined" || !google.accounts || !google.accounts.oauth2) return;
+  googleTokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: GOOGLE_CLIENT_ID,
+    scope: GOOGLE_CALENDAR_SCOPE,
+    callback: () => {}, // sobrescrito a cada chamada de requestGoogleToken
+  });
+}
+
+function requestGoogleToken(interactive) {
+  return new Promise((resolve, reject) => {
+    if (typeof google === "undefined" || !google.accounts || !google.accounts.oauth2) {
+      reject(new Error("Google Identity Services não carregou (verifique sua conexão) ou foi bloqueado."));
+      return;
+    }
+    initGoogleTokenClient();
+    if (!googleTokenClient) {
+      reject(new Error("Não foi possível iniciar o login do Google."));
+      return;
+    }
+    googleTokenClient.callback = (resp) => {
+      if (!resp || resp.error) {
+        reject(new Error((resp && resp.error) || "login cancelado"));
+        return;
+      }
+      googleAccessToken = resp.access_token;
+      googleAccessTokenExpiry = Date.now() + (resp.expires_in || 3500) * 1000;
+      resolve(googleAccessToken);
+    };
+    googleTokenClient.requestAccessToken({ prompt: interactive ? "consent" : "" });
+  });
+}
+
+async function ensureGoogleToken(interactive) {
+  if (googleAccessToken && Date.now() < googleAccessTokenExpiry - 60000) return googleAccessToken;
+  return requestGoogleToken(interactive);
+}
+
+async function googleCalendarApi(path, options = {}) {
+  const token = await ensureGoogleToken(false);
+  const res = await fetch(`https://www.googleapis.com/calendar/v3${path}`, {
+    ...options,
+    headers: { ...(options.headers || {}), Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Google Calendar API ${res.status}: ${body}`);
+  }
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+async function ensureGoogleCalendarId() {
+  if (state.googleCalendarId) return state.googleCalendarId;
+  // procura uma agenda já criada com esse nome antes de criar outra (evita duplicar entre sessões)
+  const list = await googleCalendarApi("/users/me/calendarList");
+  const existing = (list.items || []).find((c) => c.summary === GOOGLE_CALENDAR_NAME);
+  let calId;
+  if (existing) {
+    calId = existing.id;
+  } else {
+    const created = await googleCalendarApi("/calendars", {
+      method: "POST",
+      body: JSON.stringify({ summary: GOOGLE_CALENDAR_NAME, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Lima" }),
+    });
+    calId = created.id;
+  }
+  applyLocal(() => {
+    state.googleCalendarId = calId;
+  });
+  commitOps([{ ref: docRef, type: "set", data: { googleCalendarId: calId }, merge: true }]);
+  return calId;
+}
+
+function despesaCalendarEventBody(despesa, currency) {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Lima";
+  return {
+    summary: `💸 Pagar: ${despesa.description} (${fmt(despesa.value, currency)})`,
+    description: `Lançamento do Controle Financeiro — conta: ${despesa.account}.`,
+    start: { dateTime: `${despesa.dueDate}T09:00:00`, timeZone: tz },
+    end: { dateTime: `${despesa.dueDate}T09:15:00`, timeZone: tz },
+    reminders: {
+      useDefault: false,
+      overrides: [
+        { method: "popup", minutes: 0 }, // no dia, às 9h
+        { method: "popup", minutes: 1440 }, // 1 dia antes, às 9h
+      ],
+    },
+  };
+}
+
+/* cria/atualiza/apaga o evento de UMA despesa conforme o estado atual dela */
+async function syncOneDespesaToCalendar(despesa, currency) {
+  if (!state.googleCalendarConnected) return;
+  try {
+    const calId = await ensureGoogleCalendarId();
+    if (despesa.done || !despesa.dueDate) {
+      if (despesa.calendarEventId) {
+        const eventId = despesa.calendarEventId;
+        applyLocal(() => {
+          despesa.calendarEventId = null;
+        });
+        commitOps([{ ref: despesaDocRef(despesa.id), type: "set", data: { calendarEventId: null }, merge: true }]);
+        await googleCalendarApi(`/calendars/${encodeURIComponent(calId)}/events/${eventId}`, { method: "DELETE" }).catch(() => {});
+      }
+      return;
+    }
+    const body = despesaCalendarEventBody(despesa, currency);
+    if (despesa.calendarEventId) {
+      await googleCalendarApi(`/calendars/${encodeURIComponent(calId)}/events/${despesa.calendarEventId}`, { method: "PATCH", body: JSON.stringify(body) }).catch(
+        async (e) => {
+          // evento pode ter sido apagado manualmente na agenda — recria
+          console.warn("Evento não encontrado, recriando", e);
+          const created = await googleCalendarApi(`/calendars/${encodeURIComponent(calId)}/events`, { method: "POST", body: JSON.stringify(body) });
+          applyLocal(() => {
+            despesa.calendarEventId = created.id;
+          });
+          commitOps([{ ref: despesaDocRef(despesa.id), type: "set", data: { calendarEventId: created.id }, merge: true }]);
+        }
+      );
+    } else {
+      const created = await googleCalendarApi(`/calendars/${encodeURIComponent(calId)}/events`, { method: "POST", body: JSON.stringify(body) });
+      applyLocal(() => {
+        despesa.calendarEventId = created.id;
+      });
+      commitOps([{ ref: despesaDocRef(despesa.id), type: "set", data: { calendarEventId: created.id }, merge: true }]);
+    }
+  } catch (e) {
+    console.error("Falha ao sincronizar com o Google Agenda", e);
+    state.googleCalendarError = true;
+    render();
+  }
+}
+
+/* apaga imediatamente o evento de uma despesa que acabou de ser excluída do app */
+async function deleteCalendarEventFor(calendarEventId) {
+  if (!state.googleCalendarConnected || !calendarEventId) return;
+  try {
+    const calId = await ensureGoogleCalendarId();
+    await googleCalendarApi(`/calendars/${encodeURIComponent(calId)}/events/${calendarEventId}`, { method: "DELETE" });
+  } catch (e) {
+    console.error("Falha ao apagar evento do Google Agenda", e);
+  }
+}
+
+async function runGoogleCalendarSync() {
+  if (!state.googleCalendarConnected) return;
+  state.googleCalendarSyncing = true;
+  state.googleCalendarError = false;
+  render();
+  try {
+    const accountIndex = buildAccountIndex(state.accounts);
+    for (const d of state.despesas) {
+      const currency = accountIndex[d.account]?.currency || "BRL";
+      await syncOneDespesaToCalendar(d, currency);
+    }
+  } catch (e) {
+    console.error("Falha na sincronização geral com o Google Agenda", e);
+    state.googleCalendarError = true;
+  } finally {
+    state.googleCalendarSyncing = false;
+    render();
+  }
+}
+
+function scheduleGoogleCalendarSync() {
+  if (!state.googleCalendarConnected) return;
+  clearTimeout(googleSyncDebounceTimer);
+  googleSyncDebounceTimer = setTimeout(() => {
+    runGoogleCalendarSync();
+  }, 1500);
+}
+
+async function connectGoogleCalendar() {
+  state.googleCalendarSyncing = true;
+  state.googleCalendarError = false;
+  render();
+  try {
+    await requestGoogleToken(true);
+    state.googleCalendarConnected = true;
+    await ensureGoogleCalendarId();
+    await runGoogleCalendarSync();
+  } catch (e) {
+    console.error("Falha ao conectar com o Google Agenda", e);
+    state.googleCalendarError = true;
+  } finally {
+    state.googleCalendarSyncing = false;
+    render();
+  }
+}
+
+function disconnectGoogleCalendar() {
+  googleAccessToken = null;
+  googleAccessTokenExpiry = 0;
+  state.googleCalendarConnected = false;
+  render();
+}
+
+/* na abertura do app, tenta reconectar em silêncio (sem popup) se já houver uma agenda criada antes */
+async function maybeSilentReconnectGoogleCalendar() {
+  if (!state.googleCalendarId || state.googleCalendarConnected) return;
+  try {
+    await requestGoogleToken(false);
+    state.googleCalendarConnected = true;
+    render();
+    runGoogleCalendarSync();
+  } catch (e) {
+    // sem sessão ativa do Google ou consentimento expirado — tudo bem, a pessoa reconecta manualmente
+  }
+}
+
 /* migra usuários antigos (documento único) para o novo modelo, ou semeia um usuário novo */
 async function migrateIfNeeded() {
   const snap = await docRef.get();
@@ -859,6 +1090,7 @@ function checkAllPartsLoaded() {
     state.ready = true;
     render();
     maybeAutoUpdateRate();
+    maybeSilentReconnectGoogleCalendar();
   }
 }
 
@@ -870,6 +1102,7 @@ function attachFirestoreListeners() {
       if (typeof data.rate === "number") state.rate = data.rate;
       if (data.rateUpdatedAt) state.rateUpdatedAt = data.rateUpdatedAt;
       if (typeof data.worstCaseTaxPct === "number") state.worstCaseTaxPct = data.worstCaseTaxPct;
+      if (typeof data.googleCalendarId === "string") state.googleCalendarId = data.googleCalendarId;
       state.syncStatus = snapshot.metadata.hasPendingWrites ? "saving" : snapshot.metadata.fromCache ? "offline" : "synced";
       loadedParts.rate = true;
       checkAllPartsLoaded();
@@ -1965,6 +2198,25 @@ function renderSettingsModal() {
         <input type="file" id="import-csv-input" accept=".csv,text/csv" style="display:none"/>
         <div style="font-size:11px;color:var(--text-dim);margin-top:2px">O CSV exporta contas, câmbio, despesas e receitas. Ao importar: despesas/receitas são somadas; contas com o mesmo nome são atualizadas (saldo/data), contas novas são criadas.</div>
 
+        <div class="section-label">📅 Google Agenda</div>
+        <div class="rate-card" style="margin-bottom:0">
+          ${
+            state.googleCalendarConnected
+              ? `<div class="rate-text" style="margin-bottom:10px">✅ Conectado — contas pendentes viram lembrete na sua agenda "Controle Financeiro – Contas a pagar" (1 dia antes e no dia, às 9h).</div>
+            <div class="backup-row">
+              <button class="backup-btn" data-action="sync-google-calendar" ${state.googleCalendarSyncing ? "disabled" : ""}>${
+                  state.googleCalendarSyncing ? "⏳ Sincronizando…" : "🔄 Sincronizar agora"
+                }</button>
+              <button class="cancel-btn" data-action="disconnect-google-calendar" style="flex:1">Desconectar</button>
+            </div>`
+              : `<div class="rate-text" style="margin-bottom:10px">Conecte sua conta do Google para receber lembrete (no celular e no computador) de cada conta pendente, no dia e 1 dia antes do vencimento. Some paga ou excluída, o lembrete some sozinho.</div>
+            <button class="backup-btn" data-action="connect-google-calendar" ${state.googleCalendarSyncing ? "disabled" : ""} style="width:100%">
+              ${state.googleCalendarSyncing ? "⏳ Conectando…" : "📅 Conectar Google Agenda"}
+            </button>`
+          }
+          ${state.googleCalendarError ? `<div style="color:var(--danger);font-size:12px;margin-top:8px">Não foi possível falar com o Google Agenda agora. Tente de novo em instantes.</div>` : ""}
+        </div>
+
         <div class="section-label">👤 Sessão</div>
         <div class="rate-card" style="margin-bottom:0">
           <div class="rate-text" style="margin-bottom:10px">Conectado como ${esc(currentUser?.email || "")}</div>
@@ -2257,6 +2509,7 @@ function bindEvents() {
         state.newItemDraft[kind] = {};
       });
       commitOps(newItems.map((item) => ({ ref: (kind === "despesa" ? despesaDocRef : receitaDocRef)(item.id), type: "set", data: item })));
+      if (kind === "despesa") scheduleGoogleCalendarSync();
     })
   );
 
@@ -2316,6 +2569,7 @@ function bindEvents() {
           item.doneDate = null;
         });
         commitOps([{ ref: (kind === "despesa" ? despesaDocRef : receitaDocRef)(id), type: "set", data: { done: false, doneDate: null }, merge: true }]);
+        if (kind === "despesa") scheduleGoogleCalendarSync();
       } else {
         state.pendingDoneToggle = { kind, id, date: todayStr() };
         render();
@@ -2348,6 +2602,7 @@ function bindEvents() {
         state.pendingDoneToggle = null;
       });
       if (item) commitOps([{ ref: (kind === "despesa" ? despesaDocRef : receitaDocRef)(id), type: "set", data: { done: true, doneDate: chosenDate }, merge: true }]);
+      if (item && kind === "despesa") scheduleGoogleCalendarSync();
     });
 
   function captureTransferDraft() {
@@ -2462,6 +2717,7 @@ function bindEvents() {
         { ref: despesaDocRef(despesaItem.id), type: "set", data: despesaItem },
         { ref: receitaDocRef(receitaItem.id), type: "set", data: receitaItem },
       ]);
+      scheduleGoogleCalendarSync();
     });
 
   shell.querySelectorAll("[data-edit]").forEach((input) =>
@@ -2475,6 +2731,7 @@ function bindEvents() {
         item[edit] = newValue;
       });
       commitOps([{ ref: (kind === "despesa" ? despesaDocRef : receitaDocRef)(id), type: "set", data: { [edit]: newValue }, merge: true }]);
+      if (kind === "despesa") scheduleGoogleCalendarSync();
     })
   );
 
@@ -2486,6 +2743,14 @@ function bindEvents() {
       const transferId = item && item.isTransfer ? item.transferId : null;
       const pairedDespesaIds = transferId ? state.despesas.filter((i) => i.transferId === transferId && i.id !== id).map((i) => i.id) : [];
       const pairedReceitaIds = transferId ? state.receitas.filter((i) => i.transferId === transferId && i.id !== id).map((i) => i.id) : [];
+      // captura os eventos de agenda ANTES de remover os itens do array, senão perdemos a referência
+      const calendarEventIdsToDelete = [];
+      if (kind === "despesa" && item && item.calendarEventId) calendarEventIdsToDelete.push(item.calendarEventId);
+      if (transferId) {
+        state.despesas
+          .filter((i) => i.transferId === transferId && i.calendarEventId)
+          .forEach((i) => calendarEventIdsToDelete.push(i.calendarEventId));
+      }
       applyLocal(() => {
         if (kind === "despesa") state.despesas = state.despesas.filter((i) => i.id !== id);
         else state.receitas = state.receitas.filter((i) => i.id !== id);
@@ -2499,6 +2764,7 @@ function bindEvents() {
       pairedDespesaIds.forEach((pid) => ops.push({ ref: despesaDocRef(pid), type: "delete" }));
       pairedReceitaIds.forEach((pid) => ops.push({ ref: receitaDocRef(pid), type: "delete" }));
       commitOps(ops);
+      calendarEventIdsToDelete.forEach((eventId) => deleteCalendarEventFor(eventId));
     })
   );
 
@@ -2617,6 +2883,7 @@ function bindEvents() {
             state.receitas = newReceitas;
           });
           await commitOpsChunked(ops);
+          scheduleGoogleCalendarSync();
         } catch (err) {
           console.error(err);
           alert("Arquivo inválido.");
@@ -2694,6 +2961,7 @@ function bindEvents() {
           novasDespesas.forEach((d) => ops.push({ ref: despesaDocRef(d.id), type: "set", data: d }));
           novasReceitas.forEach((r) => ops.push({ ref: receitaDocRef(r.id), type: "set", data: r }));
           commitOps(ops);
+          if (novasDespesas.length) scheduleGoogleCalendarSync();
 
           const partes = [];
           if (contasUpsert.length) partes.push(`${contasUpsert.length} conta(s)`);
@@ -2776,6 +3044,15 @@ function bindEvents() {
 
   const logoutBtn = shell.querySelector('[data-action="logout"]');
   if (logoutBtn) logoutBtn.addEventListener("click", () => auth.signOut());
+
+  const connectGCalBtn = shell.querySelector('[data-action="connect-google-calendar"]');
+  if (connectGCalBtn) connectGCalBtn.addEventListener("click", () => connectGoogleCalendar());
+
+  const disconnectGCalBtn = shell.querySelector('[data-action="disconnect-google-calendar"]');
+  if (disconnectGCalBtn) disconnectGCalBtn.addEventListener("click", () => disconnectGoogleCalendar());
+
+  const syncGCalBtn = shell.querySelector('[data-action="sync-google-calendar"]');
+  if (syncGCalBtn) syncGCalBtn.addEventListener("click", () => runGoogleCalendarSync());
 
   shell.querySelectorAll('[data-action="toggle-change-password"]').forEach((btn) =>
     btn.addEventListener("click", () => {
