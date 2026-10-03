@@ -6,7 +6,7 @@
 <title>Controle Financeiro</title>
 <link rel="manifest" href="manifest.json" />
 <meta name="theme-color" content="#ffffff" />
-<meta name="app-build" content="2026-10-03.1" />
+<meta name="app-build" content="2026-10-03.2" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="Financeiro" />
@@ -360,7 +360,7 @@
  *  Sincroniza via Firebase Firestore (tempo real + persistência offline).
  * ---------------------------------------------------------------------- */
 
-const APP_VERSION = "1.11"; // versão curta mostrada ao lado do título — suba junto com o app-build lá no <head>
+const APP_VERSION = "1.12"; // versão curta mostrada ao lado do título — suba junto com o app-build lá no <head>
 const APP_BUILD = document.querySelector('meta[name="app-build"]')?.content || "desconhecida";
 
 const firebaseConfig = {
@@ -1379,28 +1379,16 @@ function renderGroupedLedger(rows) {
 
 const MONTH_ABBR = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
+/* um ponto por mês para o gráfico de linha — usa o MENOR saldo do mês (não o saldo no
+   fim do mês), para que o gráfico mostre de fato o pior momento de cada mês e os valores
+   batam com o resumo "Menor saldo" / "Dia de menor saldo em cada mês" logo abaixo. */
 function buildMonthlyChartData(mode) {
-  const today = new Date();
-  const todayIso = todayStr();
-  const months = [];
-  if (mode === "previsto") {
-    for (let i = 0; i < 12; i++) months.push(new Date(Date.UTC(today.getFullYear(), today.getMonth() + i, 1)));
-  } else {
-    for (let i = 11; i >= 0; i--) months.push(new Date(Date.UTC(today.getFullYear(), today.getMonth() - i, 1)));
-  }
-  return months.map((d) => {
-    const year = d.getUTCFullYear();
-    const month = d.getUTCMonth();
-    const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-    let targetDate = new Date(Date.UTC(year, month, lastDay)).toISOString().slice(0, 10);
-    if (mode === "real" && targetDate > todayIso) targetDate = todayIso;
-    if (mode === "previsto" && targetDate < todayIso) targetDate = todayIso;
-    const bal = computeBalancesAt(state.accounts, state.despesas, state.receitas, mode, targetDate);
-    const t = totalsFromBalances(state.accounts, bal, state.rate, state.worstCaseTaxPct);
+  return monthRangesFor(mode).map(({ label, rangeStart, rangeEnd }) => {
+    const { min } = findLowestAndHighestDayInRange(mode, rangeStart, rangeEnd);
     return {
-      date: targetDate,
-      label: MONTH_ABBR[month],
-      total: Math.round(t.totalBRLLiquido * 100) / 100,
+      date: min.date,
+      label,
+      total: min.total,
     };
   });
 }
@@ -1436,25 +1424,23 @@ function findLowestAndHighestDayInRange(mode, rangeStart, rangeEnd) {
   return { min, max };
 }
 
-/* intervalo total da janela de 12 meses (resumo do ano inteiro) */
-function previstoWindowRange(mode) {
-  const today = new Date();
-  const todayIso = todayStr();
-  if (mode === "previsto") {
-    const endD = new Date(Date.UTC(today.getFullYear(), today.getMonth() + 12, 0));
-    return { startDate: todayIso, endDate: endD.toISOString().slice(0, 10) };
-  }
-  const startD = new Date(Date.UTC(today.getFullYear(), today.getMonth() - 11, 1));
-  return { startDate: startD.toISOString().slice(0, 10), endDate: todayIso };
-}
-
+/* extremos do período inteiro — usa os mesmos 12 pontos (menor saldo de cada mês) que o
+   gráfico e a lista "Dia de menor saldo em cada mês" plotam, para que os números batam
+   em todos os lugares da tela. */
 function findExactExtremes(mode) {
-  const { startDate, endDate } = previstoWindowRange(mode);
-  return findLowestAndHighestDayInRange(mode, startDate, endDate);
+  const monthlyLows = findMonthlyLowestDays(mode);
+  let min = monthlyLows[0],
+    max = monthlyLows[0];
+  for (const p of monthlyLows) {
+    if (p.total < min.total) min = p;
+    if (p.total > max.total) max = p;
+  }
+  return { min, max };
 }
 
-/* para cada um dos 12 meses da janela, acha o dia exato de menor saldo naquele mês */
-function findMonthlyLowestDays(mode) {
+/* define o intervalo [rangeStart, rangeEnd] de cada um dos 12 meses da janela (previsto:
+   hoje + 11 meses à frente; real: os 11 meses anteriores + mês atual até hoje) */
+function monthRangesFor(mode) {
   const today = new Date();
   const todayIso = todayStr();
   const monthDefs = [];
@@ -1469,8 +1455,12 @@ function findMonthlyLowestDays(mode) {
     if (mode === "real" && i === 0) rangeEnd = todayIso;
     monthDefs.push({ label: MONTH_ABBR[first.getUTCMonth()], year: first.getUTCFullYear(), rangeStart, rangeEnd });
   });
+  return monthDefs;
+}
 
-  return monthDefs.map(({ label, year, rangeStart, rangeEnd }) => {
+/* para cada um dos 12 meses da janela, acha o dia exato de menor saldo naquele mês */
+function findMonthlyLowestDays(mode) {
+  return monthRangesFor(mode).map(({ label, year, rangeStart, rangeEnd }) => {
     const { min } = findLowestAndHighestDayInRange(mode, rangeStart, rangeEnd);
     return { label, year, date: min.date, total: min.total };
   });
@@ -1538,7 +1528,7 @@ function buildBalanceChart(data) {
   const maxLabelAnchor = maxXY.cx > W * 0.75 ? "end" : maxXY.cx < W * 0.25 ? "start" : "middle";
   const maxLabelY = maxXY.valY < H / 2 ? maxXY.valY - 10 : maxXY.valY - 10;
 
-  const pointsPayload = JSON.stringify(points.map((p) => ({ x: p.cx, y: p.valY, label: p.label, total: p.total })));
+  const pointsPayload = JSON.stringify(points.map((p) => ({ x: p.cx, y: p.valY, label: p.label, total: p.total, date: p.date })));
 
   return `
     <div class="chart-svg-wrap" data-chart-points='${pointsPayload}' data-chart-w="${W}" data-chart-h="${H}">
@@ -1623,7 +1613,7 @@ function bindChartInteractivity(shell) {
     hoverDot.setAttribute("cx", nearest.x);
     hoverDot.setAttribute("cy", nearest.y);
     hoverDot.style.display = "block";
-    tooltip.textContent = `${nearest.label} · ${fmtBRL.format(nearest.total)}`;
+    tooltip.textContent = `${nearest.label} (${fmtDate(nearest.date)}) · ${fmtBRL.format(nearest.total)}`;
     tooltip.style.display = "block";
     const pxX = (nearest.x / W) * rect.width;
     const pxY = (nearest.y / H) * rect.height;
@@ -1651,6 +1641,9 @@ function renderGraficoTab() {
   const { min, max } = findExactExtremes(mode);
   const monthlyLows = findMonthlyLowestDays(mode);
 
+  const todayBal = computeBalancesAt(state.accounts, state.despesas, state.receitas, "real", todayStr());
+  const saldoHoje = totalsFromBalances(state.accounts, todayBal, state.rate, state.worstCaseTaxPct).totalBRLLiquido;
+
   return `
     <div class="segmented">
       <button class="${mode === "real" ? "active" : ""}" data-action="set-grafico-mode" data-mode="real">Real</button>
@@ -1666,13 +1659,13 @@ function renderGraficoTab() {
       </div>
     </div>
 
-    <div class="section-label">Saldo total (R$) por mês</div>
+    <div class="section-label">${mode === "previsto" ? "Menor saldo (R$) previsto por mês" : "Menor saldo (R$) por mês"}</div>
     <div class="chart-card">${buildBalanceChart(data)}</div>
 
     <div class="total-strip" style="margin-top:12px">
       <div><span class="total-strip-label">Menor saldo</span><span class="total-strip-value" style="color:${min.total < 0 ? "var(--danger)" : "var(--brl)"}">${fmtBRL.format(min.total)}</span></div>
       <div><span class="total-strip-label">Maior saldo</span><span class="total-strip-value" style="color:var(--brl)">${fmtBRL.format(max.total)}</span></div>
-      <div><span class="total-strip-label">Saldo hoje</span><span class="total-strip-value" style="color:var(--gold)">${fmtBRL.format(data.find((d) => d.date === todayStr())?.total ?? data[data.length - 1].total)}</span></div>
+      <div><span class="total-strip-label">Saldo hoje</span><span class="total-strip-value" style="color:var(--gold)">${fmtBRL.format(saldoHoje)}</span></div>
     </div>
     <div style="text-align:right;font-size:11px;color:var(--text-dim);margin-top:2px">
       Menor saldo em ${fmtDate(min.date)} · Maior saldo em ${fmtDate(max.date)}
