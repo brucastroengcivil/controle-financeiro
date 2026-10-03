@@ -6,7 +6,7 @@
 <title>Controle Financeiro</title>
 <link rel="manifest" href="manifest.json" />
 <meta name="theme-color" content="#ffffff" />
-<meta name="app-build" content="2026-09-29.3" />
+<meta name="app-build" content="2026-10-03.1" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="Financeiro" />
@@ -360,7 +360,7 @@
  *  Sincroniza via Firebase Firestore (tempo real + persistência offline).
  * ---------------------------------------------------------------------- */
 
-const APP_VERSION = "1.10"; // versão curta mostrada ao lado do título — suba junto com o app-build lá no <head>
+const APP_VERSION = "1.11"; // versão curta mostrada ao lado do título — suba junto com o app-build lá no <head>
 const APP_BUILD = document.querySelector('meta[name="app-build"]')?.content || "desconhecida";
 
 const firebaseConfig = {
@@ -1405,32 +1405,20 @@ function buildMonthlyChartData(mode) {
   });
 }
 
-/* acha o menor/maior saldo EXATO dentro do período (não só o saldo no fim de cada mês):
-   avalia o saldo logo após cada lançamento (despesa/receita) que cai dentro da janela,
-   já que é só nessas datas que o saldo muda — assim pega o dia exato da menor "queda",
-   mesmo que ela se recupere antes do fim do mês. */
-function findExactExtremes(mode) {
-  const today = new Date();
-  const todayIso = todayStr();
-  let startDate, endDate;
-  if (mode === "previsto") {
-    startDate = todayIso;
-    const endD = new Date(Date.UTC(today.getFullYear(), today.getMonth() + 12, 0));
-    endDate = endD.toISOString().slice(0, 10);
-  } else {
-    const startD = new Date(Date.UTC(today.getFullYear(), today.getMonth() - 11, 1));
-    startDate = startD.toISOString().slice(0, 10);
-    endDate = todayIso;
-  }
-
-  const dateSet = new Set([startDate, endDate]);
+/* acha o menor/maior saldo EXATO dentro de um intervalo [rangeStart, rangeEnd] (não só o
+   saldo no fim do período): avalia o saldo acumulado — saldo do dia anterior + receitas do
+   dia - despesas do dia — em cada data de lançamento que cai dentro do intervalo, já que é
+   só nessas datas que o saldo muda. Assim pega o dia exato da menor (e maior) "queda", mesmo
+   que ela se recupere depois. */
+function findLowestAndHighestDayInRange(mode, rangeStart, rangeEnd) {
+  const dateSet = new Set([rangeStart, rangeEnd]);
   state.despesas.forEach((d) => {
     const date = mode === "real" ? (d.done ? d.doneDate || d.dueDate : null) : d.dueDate;
-    if (date && date >= startDate && date <= endDate) dateSet.add(date);
+    if (date && date >= rangeStart && date <= rangeEnd) dateSet.add(date);
   });
   state.receitas.forEach((r) => {
     const date = mode === "real" ? (r.done ? r.doneDate || r.dueDate : null) : r.dueDate;
-    if (date && date >= startDate && date <= endDate) dateSet.add(date);
+    if (date && date >= rangeStart && date <= rangeEnd) dateSet.add(date);
   });
 
   const points = [...dateSet].sort().map((date) => {
@@ -1446,6 +1434,46 @@ function findExactExtremes(mode) {
     if (p.total > max.total) max = p;
   }
   return { min, max };
+}
+
+/* intervalo total da janela de 12 meses (resumo do ano inteiro) */
+function previstoWindowRange(mode) {
+  const today = new Date();
+  const todayIso = todayStr();
+  if (mode === "previsto") {
+    const endD = new Date(Date.UTC(today.getFullYear(), today.getMonth() + 12, 0));
+    return { startDate: todayIso, endDate: endD.toISOString().slice(0, 10) };
+  }
+  const startD = new Date(Date.UTC(today.getFullYear(), today.getMonth() - 11, 1));
+  return { startDate: startD.toISOString().slice(0, 10), endDate: todayIso };
+}
+
+function findExactExtremes(mode) {
+  const { startDate, endDate } = previstoWindowRange(mode);
+  return findLowestAndHighestDayInRange(mode, startDate, endDate);
+}
+
+/* para cada um dos 12 meses da janela, acha o dia exato de menor saldo naquele mês */
+function findMonthlyLowestDays(mode) {
+  const today = new Date();
+  const todayIso = todayStr();
+  const monthDefs = [];
+  const span = [...Array(12).keys()];
+  (mode === "previsto" ? span : span.slice().reverse()).forEach((i) => {
+    const offset = mode === "previsto" ? i : -i;
+    const first = new Date(Date.UTC(today.getFullYear(), today.getMonth() + offset, 1));
+    const lastDay = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0));
+    let rangeStart = first.toISOString().slice(0, 10);
+    let rangeEnd = lastDay.toISOString().slice(0, 10);
+    if (mode === "previsto" && i === 0) rangeStart = todayIso;
+    if (mode === "real" && i === 0) rangeEnd = todayIso;
+    monthDefs.push({ label: MONTH_ABBR[first.getUTCMonth()], year: first.getUTCFullYear(), rangeStart, rangeEnd });
+  });
+
+  return monthDefs.map(({ label, year, rangeStart, rangeEnd }) => {
+    const { min } = findLowestAndHighestDayInRange(mode, rangeStart, rangeEnd);
+    return { label, year, date: min.date, total: min.total };
+  });
 }
 
 function findExtremes(data) {
@@ -1621,6 +1649,7 @@ function renderGraficoTab() {
   const data = buildMonthlyChartData(mode);
 
   const { min, max } = findExactExtremes(mode);
+  const monthlyLows = findMonthlyLowestDays(mode);
 
   return `
     <div class="segmented">
@@ -1647,6 +1676,22 @@ function renderGraficoTab() {
     </div>
     <div style="text-align:right;font-size:11px;color:var(--text-dim);margin-top:2px">
       Menor saldo em ${fmtDate(min.date)} · Maior saldo em ${fmtDate(max.date)}
+    </div>
+
+    <div class="section-label">${mode === "previsto" ? "📅 Dia de menor saldo em cada mês (previsto)" : "📅 Dia de menor saldo em cada mês"}</div>
+    <div class="ledger-list">
+      ${monthlyLows
+        .map(
+          (m) => `
+        <div class="ledger-row">
+          <div class="ledger-top-line">
+            <span class="ledger-desc">${esc(m.label)}/${m.year}</span>
+            <span class="ledger-value" style="color:${m.total < 0 ? "var(--danger)" : "var(--brl)"}">${fmtBRL.format(m.total)}</span>
+          </div>
+          <div class="ledger-meta">Dia mais baixo: ${fmtDate(m.date)}${m.total < 0 ? " · saldo negativo" : ""}</div>
+        </div>`
+        )
+        .join("")}
     </div>`;
 }
 
