@@ -6,7 +6,7 @@
 <title>Controle Financeiro</title>
 <link rel="manifest" href="manifest.json" />
 <meta name="theme-color" content="#ffffff" />
-<meta name="app-build" content="2026-10-31.1" />
+<meta name="app-build" content="2026-10-03.3" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="Financeiro" />
@@ -492,7 +492,6 @@ let state = {
   googleCalendarConnected: false, // só nesta sessão/navegador (o token do Google não é persistido)
   googleCalendarSyncing: false,
   googleCalendarError: false,
-  saveError: null, // mensagem da última falha de gravação (some sozinha)
 };
 
 applyTheme(state.themePreference);
@@ -778,37 +777,12 @@ async function commitOpsChunked(ops) {
   }
 }
 
-/* ------------------------------ erros de gravação ------------------------------ */
-function traduzErroFirestore(e) {
-  const code = (e && e.code) || "";
-  if (code.includes("permission-denied")) return "Sem permissão para salvar. Verifique se você está logado na conta certa.";
-  if (code.includes("unauthenticated")) return "Sua sessão expirou. Entre novamente para salvar.";
-  if (code.includes("resource-exhausted")) return "Limite de uso do banco atingido. Tente novamente mais tarde.";
-  if (code.includes("unavailable")) return "Sem conexão com o banco de dados. Verifique sua internet.";
-  if (code.includes("failed-precondition")) return "O banco recusou a operação. Recarregue o app e tente de novo.";
-  if (code.includes("invalid-argument")) return "Dados inválidos enviados ao banco.";
-  return "Não foi possível salvar no banco de dados.";
-}
-function showSaveError(message) {
-  state.saveError = message;
-  state.syncStatus = "error";
-  render();
-  clearTimeout(showSaveError._t);
-  showSaveError._t = setTimeout(() => {
-    if (state.saveError) {
-      state.saveError = null;
-      render();
-    }
-  }, 12000);
-}
-/* grava no Firestore. Em caso de falha real, REJEITA a promise para que quem
-   chamou possa desfazer a mudança otimista feita na tela (Opção A). */
 function commitOps(ops) {
   if (!ops || ops.length === 0) return Promise.resolve();
   return commitOpsChunked(ops).catch((e) => {
     console.error("Falha ao salvar no Firestore", e);
-    showSaveError(traduzErroFirestore(e));
-    throw e;
+    state.syncStatus = "error";
+    render();
   });
 }
 
@@ -2334,11 +2308,9 @@ function render() {
   else if (state.tab === "receitas") body = renderLancamentosTab("receita");
   else if (state.tab === "contas") body = renderContasTab();
 
-  shell.innerHTML = `${renderHeader()}${renderSaveErrorBanner()}${renderUpdateBanner()}<main>${body}</main>${renderTabBar()}${renderFab()}${renderDoneDateModal()}${renderTransferModal()}${renderSettingsModal()}`;
+  shell.innerHTML = `${renderHeader()}${renderUpdateBanner()}<main>${body}</main>${renderTabBar()}${renderFab()}${renderDoneDateModal()}${renderTransferModal()}${renderSettingsModal()}`;
   bindEvents();
   adjustStickyNavOffset();
-  
-
 
   const newMain = shell.querySelector("main");
   if (newMain && prevScrollTop) newMain.scrollTop = prevScrollTop;
@@ -2373,12 +2345,6 @@ function bindEvents() {
 
   bindChartInteractivity(shell);
 
-  shell.querySelectorAll('[data-action="dismiss-save-error"]').forEach((btn) =>
-    btn.addEventListener("click", () => {
-      state.saveError = null;
-      render();
-    })
-  );
   shell.querySelectorAll('[data-action="set-tab"]').forEach((btn) =>
     btn.addEventListener("click", () => {
       state.tab = btn.dataset.tab;
@@ -2542,14 +2508,7 @@ function bindEvents() {
         state.newItemAlreadyDone[kind] = false;
         state.newItemDraft[kind] = {};
       });
-      commitOps(newItems.map((item) => ({ ref: (kind === "despesa" ? despesaDocRef : receitaDocRef)(item.id), type: "set", data: item })))
-        .catch(() => {
-          const ids = new Set(newItems.map((i) => i.id));
-          applyLocal(() => {
-            if (kind === "despesa") state.despesas = state.despesas.filter((d) => !ids.has(d.id));
-            else state.receitas = state.receitas.filter((r) => !ids.has(r.id));
-          });
-        });
+      commitOps(newItems.map((item) => ({ ref: (kind === "despesa" ? despesaDocRef : receitaDocRef)(item.id), type: "set", data: item })));
       if (kind === "despesa") scheduleGoogleCalendarSync();
     })
   );
@@ -2605,19 +2564,11 @@ function bindEvents() {
       if (!item) return;
       if (item.done) {
         // desmarcar não precisa de data
-        const prevDone = item.done;
-        const prevDoneDate = item.doneDate;
         applyLocal(() => {
           item.done = false;
           item.doneDate = null;
         });
-        commitOps([{ ref: (kind === "despesa" ? despesaDocRef : receitaDocRef)(id), type: "set", data: { done: false, doneDate: null }, merge: true }])
-          .catch(() => {
-            applyLocal(() => {
-              item.done = prevDone;
-              item.doneDate = prevDoneDate;
-            });
-          });
+        commitOps([{ ref: (kind === "despesa" ? despesaDocRef : receitaDocRef)(id), type: "set", data: { done: false, doneDate: null }, merge: true }]);
         if (kind === "despesa") scheduleGoogleCalendarSync();
       } else {
         state.pendingDoneToggle = { kind, id, date: todayStr() };
@@ -2643,8 +2594,6 @@ function bindEvents() {
       const chosenDate = document.getElementById("pending-done-date-input").value || todayStr();
       const list = kind === "despesa" ? state.despesas : state.receitas;
       const item = list.find((i) => i.id === id);
-      const prevDone = item ? item.done : null;
-      const prevDoneDate = item ? item.doneDate : null;
       applyLocal(() => {
         if (item) {
           item.done = true;
@@ -2652,15 +2601,7 @@ function bindEvents() {
         }
         state.pendingDoneToggle = null;
       });
-      if (item) {
-        commitOps([{ ref: (kind === "despesa" ? despesaDocRef : receitaDocRef)(id), type: "set", data: { done: true, doneDate: chosenDate }, merge: true }])
-          .catch(() => {
-            applyLocal(() => {
-              item.done = prevDone;
-              item.doneDate = prevDoneDate;
-            });
-          });
-      }
+      if (item) commitOps([{ ref: (kind === "despesa" ? despesaDocRef : receitaDocRef)(id), type: "set", data: { done: true, doneDate: chosenDate }, merge: true }]);
       if (item && kind === "despesa") scheduleGoogleCalendarSync();
     });
 
@@ -2775,14 +2716,7 @@ function bindEvents() {
       commitOps([
         { ref: despesaDocRef(despesaItem.id), type: "set", data: despesaItem },
         { ref: receitaDocRef(receitaItem.id), type: "set", data: receitaItem },
-      ])
-        .catch(() => {
-          applyLocal(() => {
-            state.despesas = state.despesas.filter((d) => d.id !== despesaItem.id);
-            state.receitas = state.receitas.filter((r) => r.id !== receitaItem.id);
-            state.transferError = "Não foi possível salvar a transferência. Tente novamente.";
-          });
-        });
+      ]);
       scheduleGoogleCalendarSync();
     });
 
@@ -2793,16 +2727,10 @@ function bindEvents() {
       const item = list.find((i) => i.id === id);
       if (!item) return;
       const newValue = edit === "value" ? parseFloat(e.target.value) || 0 : e.target.value;
-      const prevValue = item[edit];
       applyLocal(() => {
         item[edit] = newValue;
       });
-      commitOps([{ ref: (kind === "despesa" ? despesaDocRef : receitaDocRef)(id), type: "set", data: { [edit]: newValue }, merge: true }])
-        .catch(() => {
-          applyLocal(() => {
-            item[edit] = prevValue;
-          });
-        });
+      commitOps([{ ref: (kind === "despesa" ? despesaDocRef : receitaDocRef)(id), type: "set", data: { [edit]: newValue }, merge: true }]);
       if (kind === "despesa") scheduleGoogleCalendarSync();
     })
   );
@@ -2823,12 +2751,11 @@ function bindEvents() {
           .filter((i) => i.transferId === transferId && i.calendarEventId)
           .forEach((i) => calendarEventIdsToDelete.push(i.calendarEventId));
       }
-      const backupDespesas = state.despesas.slice();
-      const backupReceitas = state.receitas.slice();
       applyLocal(() => {
         if (kind === "despesa") state.despesas = state.despesas.filter((i) => i.id !== id);
         else state.receitas = state.receitas.filter((i) => i.id !== id);
         if (transferId) {
+          // apaga a outra ponta da transferência também, para não deixar órfã
           state.despesas = state.despesas.filter((i) => i.transferId !== transferId);
           state.receitas = state.receitas.filter((i) => i.transferId !== transferId);
         }
@@ -2836,16 +2763,8 @@ function bindEvents() {
       const ops = [{ ref: (kind === "despesa" ? despesaDocRef : receitaDocRef)(id), type: "delete" }];
       pairedDespesaIds.forEach((pid) => ops.push({ ref: despesaDocRef(pid), type: "delete" }));
       pairedReceitaIds.forEach((pid) => ops.push({ ref: receitaDocRef(pid), type: "delete" }));
-      commitOps(ops)
-        .then(() => {
-          calendarEventIdsToDelete.forEach((eventId) => deleteCalendarEventFor(eventId));
-        })
-        .catch(() => {
-          applyLocal(() => {
-            state.despesas = backupDespesas;
-            state.receitas = backupReceitas;
-          });
-        });
+      commitOps(ops);
+      calendarEventIdsToDelete.forEach((eventId) => deleteCalendarEventFor(eventId));
     })
   );
 
