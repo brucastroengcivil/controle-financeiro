@@ -6,7 +6,7 @@
 <title>Controle Financeiro</title>
 <link rel="manifest" href="manifest.json" />
 <meta name="theme-color" content="#ffffff" />
-<meta name="app-build" content="2026-11-01.1" />
+<meta name="app-build" content="2026-11-01.2" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="Financeiro" />
@@ -248,6 +248,14 @@
   input[type=date] {
     max-width: 100%; -webkit-appearance: none; appearance: none;
   }
+  /* inputs numéricos curtos inline (taxa de câmbio, % de imposto) — sem as setinhas
+     nativas de incremento, pra sobrar espaço pro número inteiro aparecer. */
+  .inline-num-input {
+    width: 70px; padding: 8px 6px; text-align: right; -moz-appearance: textfield;
+  }
+  .inline-num-input::-webkit-outer-spin-button, .inline-num-input::-webkit-inner-spin-button {
+    -webkit-appearance: none; margin: 0;
+  }
   input[type=date]::-webkit-date-and-time-value { text-align: left; }
   .delete-btn { display: flex; align-items: center; gap: 6px; background: none; border: none; color: var(--danger);
     font-size: 12.5px; padding: 4px 0; cursor: pointer; align-self: flex-start; }
@@ -328,6 +336,7 @@
   .tab-btn { display: flex; flex-direction: column; align-items: center; gap: 3px; background: none; border: none; cursor: pointer; padding: 4px 10px; color: var(--text-dim); border-radius: 8px; }
   .tab-btn.active { color: var(--gold); }
   .tab-btn svg { width: 20px; height: 20px; }
+  .tab-btn-icon { font-size: 18px; line-height: 1; filter: grayscale(0); }
   .tab-btn-label { font-size: 10.5px; }
 
   /* ---------- responsivo: tablet e desktop ---------- */
@@ -376,7 +385,7 @@
  *  Sincroniza via Firebase Firestore (tempo real + persistência offline).
  * ---------------------------------------------------------------------- */
 
-const APP_VERSION = "1.15"; // versão curta mostrada ao lado do título — suba junto com o app-build lá no <head>
+const APP_VERSION = "1.16"; // versão curta mostrada ao lado do título — suba junto com o app-build lá no <head>
 const APP_BUILD = document.querySelector('meta[name="app-build"]')?.content || "desconhecida";
 
 const firebaseConfig = {
@@ -470,8 +479,7 @@ let state = {
   syncStatus: "loading", // loading | saving | synced | error
   tab: "fluxo",
   fluxoMode: "real",
-  graficoMode: "previsto",
-  graficoBarFilter: "despesas", // "despesas" | "receitas" — qual gráfico de barras (soles x reais) mostrar
+  graficoChartFilter: "saldo", // "saldo" | "despesas" | "receitas" — qual dos 3 gráficos a aba Gráfico mostra
   fluxoFilterYear: _curYear,
   fluxoFilterMonth: _curMonth,
   fluxoSearchText: "",
@@ -484,6 +492,7 @@ let state = {
   showDespesaForm: false,
   showReceitaForm: false,
   quickAddKind: null, // "despesa" | "receita" | null — form aberto como caixa (modal) pelo botão + flutuante, em cima da tela atual
+  editItemModal: null, // { kind, id } | null — caixa de edição de UM lançamento, aberta pelo lápis
   showChangePasswordForm: false,
   changePasswordMsg: "",
   changePasswordMsgOk: false,
@@ -555,6 +564,16 @@ function csvEscape(value) {
   return s;
 }
 
+/* formata um número com vírgula decimal (padrão BR), sem separador de milhar — para não
+   colidir com o ";" usado como separador de campo no CSV. Mantém as casas decimais mesmo
+   quando o valor é "redondo" (420 -> "420,00"), que era o que sumia na exportação antiga. */
+function csvNumber(value, decimals) {
+  if (value === "" || value === null || value === undefined) return "";
+  const n = Number(value);
+  if (isNaN(n)) return "";
+  return n.toFixed(decimals).replace(".", ",");
+}
+
 function buildCsvExport() {
   const accountIndex = buildAccountIndex(state.accounts);
   const header = ["Tipo", "Descrição", "Conta", "Moeda", "Valor", "Data", "Status", "DataEfetivacao", "SaldoInicial", "DataInicial", "Taxa"];
@@ -562,20 +581,22 @@ function buildCsvExport() {
 
   [...state.accounts.BRL, ...state.accounts.PEN].forEach((a) => {
     const currency = state.accounts.PEN.includes(a) ? "PEN" : "BRL";
-    rows.push(["Conta", a.name, "", currency, "", "", "", "", a.initial, a.initialDate, ""]);
+    rows.push(["Conta", a.name, "", currency, "", "", "", "", csvNumber(a.initial, 2), a.initialDate, ""]);
   });
 
-  rows.push(["Câmbio", "1 PEN em BRL", "", "", "", "", "", "", "", "", state.rate]);
-  rows.push(["ImpostoPiorCaso", "% descontado do S/ ao converter para R$", "", "", "", "", "", "", "", "", state.worstCaseTaxPct]);
+  rows.push(["Câmbio", "1 PEN em BRL", "", "", "", "", "", "", "", "", csvNumber(state.rate, 4)]);
+  rows.push(["ImpostoPiorCaso", "% descontado do S/ ao converter para R$", "", "", "", "", "", "", "", "", csvNumber(state.worstCaseTaxPct, 2)]);
 
   state.despesas.forEach((d) => {
-    rows.push(["Despesa", d.description, d.account, accountIndex[d.account]?.currency || "BRL", d.value, d.dueDate, d.done ? "Pago" : "Pendente", d.doneDate || "", "", "", ""]);
+    rows.push(["Despesa", d.description, d.account, accountIndex[d.account]?.currency || "BRL", csvNumber(d.value, 2), d.dueDate, d.done ? "Pago" : "Pendente", d.doneDate || "", "", "", ""]);
   });
   state.receitas.forEach((r) => {
-    rows.push(["Receita", r.description, r.account, accountIndex[r.account]?.currency || "BRL", r.value, r.dueDate, r.done ? "Recebido" : "Pendente", r.doneDate || "", "", "", ""]);
+    rows.push(["Receita", r.description, r.account, accountIndex[r.account]?.currency || "BRL", csvNumber(r.value, 2), r.dueDate, r.done ? "Recebido" : "Pendente", r.doneDate || "", "", "", ""]);
   });
 
-  return rows.map((row) => row.map(csvEscape).join(",")).join("\r\n");
+  // ";" como separador de campo (em vez de ",") para não colidir com a vírgula decimal
+  // dos valores — é assim que o Excel em português abre CSV corretamente, com decimais.
+  return rows.map((row) => row.map(csvEscape).join(";")).join("\r\n");
 }
 
 function parseCsvLines(text) {
@@ -600,7 +621,7 @@ function parseCsvLines(text) {
       }
     } else if (c === '"') {
       inQuotes = true;
-    } else if (c === ",") {
+    } else if (c === ";") {
       row.push(field);
       field = "";
     } else if (c === "\r") {
@@ -1408,19 +1429,47 @@ function renderQuickAddModal() {
     </div>`;
 }
 
+/* caixa (modal) para editar UM lançamento só, aberta pelo lápis — mesma peça de campos
+   (itemDetailFieldsHtml) que já existia, só que agora dentro de uma caixa própria em vez
+   de expandir dentro da lista (o lápis não funcionava direito nesse modelo antigo). */
+function renderEditItemModal() {
+  if (!state.editItemModal) return "";
+  const { kind, id } = state.editItemModal;
+  const list = kind === "despesa" ? state.despesas : state.receitas;
+  const item = list.find((i) => i.id === id);
+  if (!item) return "";
+  const accountIndex = buildAccountIndex(state.accounts);
+  const accountNames = [...state.accounts.BRL, ...state.accounts.PEN].map((a) => a.name);
+  const currency = accountIndex[item.account]?.currency || "BRL";
+  const doneDateLabel = kind === "despesa" ? "Data em que pagou" : "Data em que recebeu";
+  const title = kind === "despesa" ? "📉 Editar despesa" : "📈 Editar receita";
+  return `
+    <div class="modal-overlay" data-action="close-edit-modal">
+      <div class="modal-card" data-action="stop-propagation">
+        <div class="section-label" style="margin-top:0">${title}</div>
+        ${itemDetailFieldsHtml(item, kind, currency, doneDateLabel, accountNames)}
+        <div class="form-actions" style="margin-top:14px">
+          <button class="add-btn" data-action="close-edit-modal" style="flex:1">${ICONS.check} Fechar</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+/* ícones das abas como emoji colorido (pedido do usuário), em vez dos SVGs monocromáticos
+   de antes — mais fáceis de diferenciar rapidamente de relance. */
 function renderTabBar() {
   const tabs = [
-    ["fluxo", ICONS.wallet, "Fluxo"],
-    ["grafico", ICONS.chart, "Gráfico"],
-    ["despesas", ICONS.down, "Despesas"],
-    ["receitas", ICONS.up, "Receitas"],
-    ["contas", ICONS.landmark, "Contas"],
+    ["fluxo", "💳", "Fluxo"],
+    ["grafico", "📊", "Gráfico"],
+    ["despesas", "📉", "Despesas"],
+    ["receitas", "📈", "Receitas"],
+    ["contas", "🏦", "Contas"],
   ];
   return `<nav class="tab-bar">${tabs
     .map(
       ([key, icon, label]) => `
     <button class="tab-btn ${state.tab === key ? "active" : ""}" data-action="set-tab" data-tab="${key}">
-      ${icon}<span class="tab-btn-label">${label}</span>
+      <span class="tab-btn-icon">${icon}</span><span class="tab-btn-label">${label}</span>
     </button>`
     )
     .join("")}</nav>`;
@@ -1652,21 +1701,16 @@ function renderFluxoTab() {
 /* uma linha de movimentação no Fluxo, com lápis (editar) e x (excluir) e campos
    expansíveis — mesma peça usada nas listas de Despesas/Receitas. */
 function fluxoRowHtml(row, accountNames) {
-  const key = `${row.kind}-${row.id}`;
-  const open = state.openItems.has(key);
-  const doneDateLabel = row.kind === "despesa" ? "Data em que pagou" : "Data em que recebeu";
   return `
     <div class="item-card">
-      <div class="item-top" data-action="toggle-open" data-kind="${row.kind}" data-id="${row.id}">
+      <div class="item-top" data-action="select-row" data-kind="${row.kind}" data-id="${row.id}">
         <div class="item-mid">
           <div class="ledger-desc">${esc(row.description)}${repeatLabel(row)}</div>
           <div class="ledger-meta">${fmtDate(row.date)} · ${esc(row.account)} <span style="color:${row.done ? "var(--brl)" : "var(--text-dim)"}">· ${row.done ? "liquidado" : "pendente"}</span></div>
         </div>
         <span class="ledger-value-wrap"><span class="ledger-arrow" style="color:${row.kind === "despesa" ? "var(--danger)" : "var(--brl)"}">${row.kind === "despesa" ? "▼" : "▲"}</span><span class="ledger-value" style="color:${row.kind === "despesa" ? "var(--danger)" : row.currency === "PEN" ? "var(--pen)" : "var(--brl)"}">${row.kind === "despesa" ? "-" : "+"}${fmt(row.value, row.currency)}</span></span>
         ${rowIconBtnsHtml(row.kind, row.id, row.description)}
-        <div class="chevron ${open ? "open" : ""}">${ICONS.chevron}</div>
       </div>
-      ${open ? itemDetailFieldsHtml(row, row.kind, row.currency, doneDateLabel, accountNames) : ""}
     </div>`;
 }
 
@@ -1796,52 +1840,82 @@ function findMonthlyLowestDays(mode) {
   });
 }
 
-/* soma o total de uma lista (despesas ou receitas) separado por moeda, segundo a conta
-   de cada lançamento — usado no gráfico de barras R$ x S/ do Gráfico. */
-function sumByCurrencyAll(list, accountIndex) {
-  return list.reduce(
-    (acc, i) => {
-      const cur = accountIndex[i.account]?.currency || "BRL";
-      if (cur === "PEN") acc.pen += i.value;
-      else acc.brl += i.value;
-      return acc;
-    },
-    { brl: 0, pen: 0 }
-  );
+/* soma despesas (ou receitas) por moeda, mês a mês, nos próximos 12 meses — um dos 3
+   gráficos do filtro (caixa de seleção) da aba Gráfico. Usa a data prevista (dueDate),
+   igual ao resto da aba, que agora só trabalha com a janela "previsto". */
+function buildMonthlyCurrencyTotals(kind) {
+  const list = kind === "despesas" ? state.despesas : state.receitas;
+  const accountIndex = buildAccountIndex(state.accounts);
+  return monthRangesFor("previsto").map(({ label, year, rangeStart, rangeEnd }) => {
+    let brl = 0,
+      pen = 0;
+    list.forEach((item) => {
+      if (item.dueDate && item.dueDate >= rangeStart && item.dueDate <= rangeEnd) {
+        const cur = accountIndex[item.account]?.currency || "BRL";
+        if (cur === "PEN") pen += item.value;
+        else brl += item.value;
+      }
+    });
+    return { label, year, brl, pen };
+  });
 }
 
-/* gráfico de barras simples com duas barras (total em R$ e total em S/, cada um na sua
-   própria moeda, sem conversão) — usado para comparar despesas ou receitas por moeda. */
-function buildCurrencyBarChart(totals) {
-  const W = 320,
-    H = 220,
-    PAD_TOP = 26,
-    PAD_BOTTOM = 36;
-  const maxVal = Math.max(totals.brl, totals.pen, 1);
+/* gráfico de barras agrupado por mês: uma barrinha R$ e uma S/ lado a lado em cada um
+   dos 12 meses — mostra o total de despesa (ou receita) de cada mês, por moeda. */
+function buildMonthlyCurrencyBarChart(monthlyTotals) {
+  const W = 400,
+    H = 260,
+    PAD_X = 10,
+    PAD_TOP = 24,
+    PAD_BOTTOM = 56;
+  const maxVal = Math.max(...monthlyTotals.map((m) => Math.max(m.brl, m.pen)), 1);
   const usableH = H - PAD_TOP - PAD_BOTTOM;
-  const barW = 72;
-  const gap = 56;
-  const totalBarsW = barW * 2 + gap;
-  const startX = (W - totalBarsW) / 2;
-  const barBRLH = (totals.brl / maxVal) * usableH;
-  const barPENH = (totals.pen / maxVal) * usableH;
-  const yBRL = H - PAD_BOTTOM - barBRLH;
-  const yPEN = H - PAD_BOTTOM - barPENH;
-  const xBRL = startX;
-  const xPEN = startX + barW + gap;
+  const n = monthlyTotals.length;
+  const slotW = (W - PAD_X * 2) / n;
+  const barW = Math.min(slotW * 0.32, 13);
+  const gap = 3;
+
+  const bars = monthlyTotals.map((m) => m).map((m, i) => {
+    const slotCx = PAD_X + slotW * i + slotW / 2;
+    const brlH = (m.brl / maxVal) * usableH;
+    const penH = (m.pen / maxVal) * usableH;
+    return {
+      ...m,
+      slotCx,
+      xBRL: slotCx - barW - gap / 2,
+      xPEN: slotCx + gap / 2,
+      yBRL: H - PAD_BOTTOM - brlH,
+      yPEN: H - PAD_BOTTOM - penH,
+      brlH,
+      penH,
+    };
+  });
+
+  const monthLabels = bars
+    .map((b) => {
+      const ly = H - PAD_BOTTOM + 10;
+      return `<text x="${b.slotCx.toFixed(1)}" y="${ly}" text-anchor="end" font-size="9.5" fill="var(--text-dim)" font-family="'IBM Plex Mono',monospace" transform="rotate(-90 ${b.slotCx.toFixed(1)} ${ly})">${b.label}</text>`;
+    })
+    .join("");
+
+  const barsSvg = bars
+    .map(
+      (b) => `
+    <rect x="${b.xBRL.toFixed(1)}" y="${b.yBRL.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(b.brlH, 0).toFixed(1)}" rx="2" fill="var(--brl)"><title>${b.label}/${b.year} · R$ ${b.brl.toFixed(2)}</title></rect>
+    <rect x="${b.xPEN.toFixed(1)}" y="${b.yPEN.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(b.penH, 0).toFixed(1)}" rx="2" fill="var(--pen)"><title>${b.label}/${b.year} · S/ ${b.pen.toFixed(2)}</title></rect>`
+    )
+    .join("");
 
   return `
     <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
-      <line x1="${(startX - 20).toFixed(1)}" y1="${H - PAD_BOTTOM}" x2="${(startX + totalBarsW + 20).toFixed(1)}" y2="${H - PAD_BOTTOM}" stroke="rgba(255,255,255,0.22)" stroke-width="1"/>
-
-      <rect x="${xBRL.toFixed(1)}" y="${yBRL.toFixed(1)}" width="${barW}" height="${Math.max(barBRLH, 0).toFixed(1)}" rx="6" fill="var(--brl)"/>
-      <text x="${(xBRL + barW / 2).toFixed(1)}" y="${(yBRL - 8).toFixed(1)}" text-anchor="middle" font-size="12.5" font-weight="600" fill="var(--brl)" font-family="'IBM Plex Mono',monospace">${fmtBRL.format(totals.brl)}</text>
-      <text x="${(xBRL + barW / 2).toFixed(1)}" y="${H - PAD_BOTTOM + 20}" text-anchor="middle" font-size="12" fill="var(--text-dim)">R$ (Brasil)</text>
-
-      <rect x="${xPEN.toFixed(1)}" y="${yPEN.toFixed(1)}" width="${barW}" height="${Math.max(barPENH, 0).toFixed(1)}" rx="6" fill="var(--pen)"/>
-      <text x="${(xPEN + barW / 2).toFixed(1)}" y="${(yPEN - 8).toFixed(1)}" text-anchor="middle" font-size="12.5" font-weight="600" fill="var(--pen)" font-family="'IBM Plex Mono',monospace">${fmtPEN.format(totals.pen)}</text>
-      <text x="${(xPEN + barW / 2).toFixed(1)}" y="${H - PAD_BOTTOM + 20}" text-anchor="middle" font-size="12" fill="var(--text-dim)">S/ (Peru)</text>
-    </svg>`;
+      <line x1="${PAD_X}" y1="${H - PAD_BOTTOM}" x2="${W - PAD_X}" y2="${H - PAD_BOTTOM}" stroke="rgba(255,255,255,0.22)" stroke-width="1"/>
+      ${barsSvg}
+      ${monthLabels}
+    </svg>
+    <div style="display:flex;justify-content:center;gap:16px;font-size:11px;color:var(--text-dim);margin-top:4px">
+      <span><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:var(--brl);margin-right:4px;vertical-align:middle"></span>R$ (Brasil)</span>
+      <span><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:var(--pen);margin-right:4px;vertical-align:middle"></span>S/ (Peru)</span>
+    </div>`;
 }
 
 function findExtremes(data) {
@@ -2012,10 +2086,35 @@ function bindChartInteractivity(shell) {
   svg.addEventListener("pointercancel", hide);
 }
 
+/* a aba Gráfico só trabalha com a janela "previsto" (próximos 12 meses) — a pedido,
+   o modo "Real" foi removido daqui (não era usado). */
 function renderGraficoTab() {
-  const mode = state.graficoMode;
-  const data = buildMonthlyChartData(mode);
+  const filter = state.graficoChartFilter; // "saldo" | "despesas" | "receitas"
 
+  const filterSelectHtml = `
+    <div class="field-row" style="margin-bottom:4px">
+      <select data-action="set-grafico-chart-filter">
+        <option value="saldo" ${filter === "saldo" ? "selected" : ""}>📉 Menor saldo previsto por mês</option>
+        <option value="despesas" ${filter === "despesas" ? "selected" : ""}>📊 Despesas por mês (R$ / S/)</option>
+        <option value="receitas" ${filter === "receitas" ? "selected" : ""}>📊 Receitas por mês (R$ / S/)</option>
+      </select>
+    </div>
+    <div class="section-label" style="margin-top:2px">Próximos 12 meses</div>`;
+
+  if (filter === "despesas" || filter === "receitas") {
+    const monthlyTotals = buildMonthlyCurrencyTotals(filter);
+    return `
+      ${filterSelectHtml}
+      <div class="section-label">${filter === "despesas" ? "📊 Despesas por mês (R$ / S/)" : "📊 Receitas por mês (R$ / S/)"}</div>
+      <div class="chart-card">${buildMonthlyCurrencyBarChart(monthlyTotals)}</div>
+      <div style="text-align:center;font-size:10.5px;color:var(--text-dim);margin-top:2px">
+        ${filter === "despesas" ? "Despesas previstas" : "Receitas previstas"} em cada mês, por moeda (sem conversão)
+      </div>`;
+  }
+
+  // filter === "saldo" — o gráfico de linha que já existia, só na janela previsto
+  const mode = "previsto";
+  const data = buildMonthlyChartData(mode);
   const { min, max } = findExactExtremes(mode);
   const monthlyLows = findMonthlyLowestDays(mode);
 
@@ -2023,13 +2122,8 @@ function renderGraficoTab() {
   const saldoHoje = totalsFromBalances(state.accounts, todayBal, state.rate, state.worstCaseTaxPct).totalBRLLiquido;
 
   return `
-    <div class="segmented">
-      <button class="${mode === "real" ? "active" : ""}" data-action="set-grafico-mode" data-mode="real">Real</button>
-      <button class="${mode === "previsto" ? "active" : ""}" data-action="set-grafico-mode" data-mode="previsto">Previsto</button>
-    </div>
-    <div class="section-label" style="margin-top:10px">${mode === "previsto" ? "Próximos 12 meses" : "Últimos 12 meses"}</div>
-
-    <div class="section-label">${mode === "previsto" ? "📉 Menor saldo previsto" : "📉 Menor saldo no período"}</div>
+    ${filterSelectHtml}
+    <div class="section-label">📉 Menor saldo previsto</div>
     <div class="extreme-card" style="border-color:${min.total < 0 ? "var(--danger)" : "var(--border)"}">
       <div>
         <div class="extreme-card-value" style="color:${min.total < 0 ? "var(--danger)" : "var(--brl)"}">${fmtBRL.format(min.total)}</div>
@@ -2037,7 +2131,7 @@ function renderGraficoTab() {
       </div>
     </div>
 
-    <div class="section-label">${mode === "previsto" ? "Menor saldo (R$) previsto por mês" : "Menor saldo (R$) por mês"}</div>
+    <div class="section-label">Menor saldo (R$) previsto por mês</div>
     <div class="chart-card">${buildBalanceChart(data)}</div>
 
     <div class="total-strip" style="margin-top:12px">
@@ -2049,7 +2143,7 @@ function renderGraficoTab() {
       Menor saldo em ${fmtDate(min.date)} · Maior saldo em ${fmtDate(max.date)}
     </div>
 
-    <div class="section-label">${mode === "previsto" ? "📅 Dia de menor saldo em cada mês (previsto)" : "📅 Dia de menor saldo em cada mês"}</div>
+    <div class="section-label">📅 Dia de menor saldo em cada mês (previsto)</div>
     <div class="ledger-list">
       ${monthlyLows
         .map(
@@ -2063,16 +2157,6 @@ function renderGraficoTab() {
         </div>`
         )
         .join("")}
-    </div>
-
-    <div class="section-label">📊 Total por moeda</div>
-    <div class="segmented">
-      <button class="${state.graficoBarFilter === "despesas" ? "active" : ""}" data-action="set-grafico-bar-filter" data-filter="despesas">Despesas</button>
-      <button class="${state.graficoBarFilter === "receitas" ? "active" : ""}" data-action="set-grafico-bar-filter" data-filter="receitas">Receitas</button>
-    </div>
-    <div class="chart-card">${buildCurrencyBarChart(sumByCurrencyAll(state.graficoBarFilter === "despesas" ? state.despesas : state.receitas, buildAccountIndex(state.accounts)))}</div>
-    <div style="text-align:center;font-size:10.5px;color:var(--text-dim);margin-top:2px">
-      ${state.graficoBarFilter === "despesas" ? "Soma de todas as despesas cadastradas" : "Soma de todas as receitas cadastradas"}, separadas por moeda (sem conversão)
     </div>`;
 }
 
@@ -2101,10 +2185,10 @@ function rateCardHtml() {
     <div class="rate-card">
       <div class="rate-row" style="flex-wrap:wrap;row-gap:8px">
         <span class="rate-text">💱 1 S/ =</span>
-        <input type="number" step="0.0001" style="width:78px;text-align:right" value="${state.rate}" data-action="set-rate"/>
+        <input type="number" step="0.0001" class="inline-num-input" value="${state.rate}" data-action="set-rate"/>
         <span class="rate-text">R$</span>
         <span class="rate-text" style="margin-left:10px">🧾 Desconto S/ →</span>
-        <input type="number" step="0.1" min="0" max="100" style="width:54px;text-align:right" value="${state.worstCaseTaxPct}" data-action="set-tax-pct"/>
+        <input type="number" step="0.1" min="0" max="100" class="inline-num-input" style="width:56px" value="${state.worstCaseTaxPct}" data-action="set-tax-pct"/>
         <span class="rate-text">%</span>
       </div>
       <div class="rate-meta-row">
@@ -2288,7 +2372,7 @@ function rowIconBtnsHtml(kind, id, description) {
   }
   return `
     <div class="row-icon-btns">
-      <button class="row-icon-btn" data-action="toggle-open" data-kind="${kind}" data-id="${id}" aria-label="Editar">${ICONS.pencil}</button>
+      <button class="row-icon-btn" data-action="open-edit-modal" data-kind="${kind}" data-id="${id}" aria-label="Editar">${ICONS.pencil}</button>
       <button class="row-icon-btn danger" data-action="quick-delete-item" data-kind="${kind}" data-id="${id}" data-desc="${esc(description)}" aria-label="Excluir">${ICONS.xMark}</button>
     </div>`;
 }
@@ -2319,11 +2403,9 @@ function itemDetailFieldsHtml(item, kind, currency, doneDateLabel, accountNames)
 }
 
 function lancamentoRowHtml(item, kind, currency, doneLabel, doneDateLabel, accountNames) {
-  const key = `${kind}-${item.id}`;
-  const open = state.openItems.has(key);
   return `
     <div class="item-card">
-      <div class="item-top" data-action="toggle-open" data-kind="${kind}" data-id="${item.id}">
+      <div class="item-top" data-action="select-row" data-kind="${kind}" data-id="${item.id}">
         <button class="check-btn ${item.done ? "on" : ""}" data-action="toggle-done" data-kind="${kind}" data-id="${item.id}" aria-label="${doneLabel}">
           ${item.done ? ICONS.circleCheck : ICONS.circle}
         </button>
@@ -2333,9 +2415,7 @@ function lancamentoRowHtml(item, kind, currency, doneLabel, doneDateLabel, accou
         </div>
         <div class="ledger-value" style="color:${currency === "PEN" ? "var(--pen)" : "var(--brl)"}">${fmt(item.value, currency)}</div>
         ${rowIconBtnsHtml(kind, item.id, item.description)}
-        <div class="chevron ${open ? "open" : ""}">${ICONS.chevron}</div>
       </div>
-      ${open ? itemDetailFieldsHtml(item, kind, currency, doneDateLabel, accountNames) : ""}
     </div>`;
 }
 
@@ -2499,7 +2579,7 @@ function render() {
   else if (state.tab === "receitas") body = renderLancamentosTab("receita");
   else if (state.tab === "contas") body = renderContasTab();
 
-  shell.innerHTML = `${renderHeader()}${renderUpdateBanner()}<main>${body}</main>${renderBulkActionBar()}${renderTabBar()}${renderFab()}${renderDoneDateModal()}${renderTransferModal()}${renderQuickAddModal()}${renderSettingsModal()}`;
+  shell.innerHTML = `${renderHeader()}${renderUpdateBanner()}<main>${body}</main>${renderBulkActionBar()}${renderTabBar()}${renderFab()}${renderDoneDateModal()}${renderTransferModal()}${renderQuickAddModal()}${renderEditItemModal()}${renderSettingsModal()}`;
   bindEvents();
   adjustStickyNavOffset();
 
@@ -2556,19 +2636,12 @@ function bindEvents() {
     })
   );
 
-  shell.querySelectorAll('[data-action="set-grafico-mode"]').forEach((btn) =>
-    btn.addEventListener("click", () => {
-      state.graficoMode = btn.dataset.mode;
+  const graficoFilterSelect = shell.querySelector('[data-action="set-grafico-chart-filter"]');
+  if (graficoFilterSelect)
+    graficoFilterSelect.addEventListener("change", (e) => {
+      state.graficoChartFilter = e.target.value;
       render();
-    })
-  );
-
-  shell.querySelectorAll('[data-action="set-grafico-bar-filter"]').forEach((btn) =>
-    btn.addEventListener("click", () => {
-      state.graficoBarFilter = btn.dataset.filter;
-      render();
-    })
-  );
+    });
 
   shell.querySelectorAll('[data-action="search-text"]').forEach((input) =>
     input.addEventListener("input", (e) => {
@@ -2724,16 +2797,28 @@ function bindEvents() {
     })
   );
 
-  shell.querySelectorAll('[data-action="toggle-open"]').forEach((row) =>
+  // tocar na linha inteira só faz algo no modo de seleção múltipla (seleciona o item);
+  // fora disso, editar é só pelo lápis (abre a caixa) — antes a linha E o lápis tinham a
+  // mesma ação, o que fazia o toque no lápis abrir e fechar na mesma hora (parecia travado).
+  shell.querySelectorAll('[data-action="select-row"]').forEach((row) =>
     row.addEventListener("click", (e) => {
-      if (e.target.closest('[data-action="toggle-done"], [data-action="quick-delete-item"], [data-action="toggle-select-item"]')) return;
-      if (state.selectModeOn) {
-        toggleSelectItem(row.dataset.kind, row.dataset.id);
-        return;
-      }
-      const key = `${row.dataset.kind}-${row.dataset.id}`;
-      if (state.openItems.has(key)) state.openItems.delete(key);
-      else state.openItems.add(key);
+      if (!state.selectModeOn) return;
+      if (e.target.closest('[data-action="toggle-done"], [data-action="quick-delete-item"], [data-action="open-edit-modal"], [data-action="toggle-select-item"]')) return;
+      toggleSelectItem(row.dataset.kind, row.dataset.id);
+    })
+  );
+
+  shell.querySelectorAll('[data-action="open-edit-modal"]').forEach((btn) =>
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      state.editItemModal = { kind: btn.dataset.kind, id: btn.dataset.id };
+      render();
+    })
+  );
+
+  shell.querySelectorAll('[data-action="close-edit-modal"]').forEach((el) =>
+    el.addEventListener("click", () => {
+      state.editItemModal = null;
       render();
     })
   );
