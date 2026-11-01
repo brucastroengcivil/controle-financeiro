@@ -6,7 +6,7 @@
 <title>Controle Financeiro</title>
 <link rel="manifest" href="manifest.json" />
 <meta name="theme-color" content="#ffffff" />
-<meta name="app-build" content="2026-10-31.1" />
+<meta name="app-build" content="2026-11-01.1" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="Financeiro" />
@@ -124,6 +124,16 @@
   .balance-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px 15px; box-shadow: var(--shadow); }
   .balance-card-name { font-size: 12px; color: var(--text-dim); margin-bottom: 6px; }
   .balance-card-value { font-family: 'IBM Plex Mono', monospace; font-size: 16px; font-weight: 600; }
+
+  /* grade de contas clicáveis (como os cartões de saldo do Fluxo) usada no lugar do
+     <select> de Conta nos formulários novo-lançamento, só em telas de computador. */
+  .account-picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
+  .account-pick-btn {
+    background: var(--panel); border: 1.5px solid var(--border); border-radius: 12px; padding: 10px 12px;
+    font-size: 13px; font-weight: 600; color: var(--text); cursor: pointer; text-align: center; transition: border-color .12s, color .12s;
+  }
+  .account-pick-btn:hover { border-color: var(--gold); }
+  .account-pick-btn.active { border-color: var(--gold); color: var(--gold); background: color-mix(in srgb, var(--gold) 12%, var(--panel)); }
 
   .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .kpi-card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 16px; box-shadow: var(--shadow); }
@@ -366,7 +376,7 @@
  *  Sincroniza via Firebase Firestore (tempo real + persistência offline).
  * ---------------------------------------------------------------------- */
 
-const APP_VERSION = "1.14"; // versão curta mostrada ao lado do título — suba junto com o app-build lá no <head>
+const APP_VERSION = "1.15"; // versão curta mostrada ao lado do título — suba junto com o app-build lá no <head>
 const APP_BUILD = document.querySelector('meta[name="app-build"]')?.content || "desconhecida";
 
 const firebaseConfig = {
@@ -490,8 +500,10 @@ let state = {
   newerBuildAvailable: null,
   showSettingsMenu: false,
   openItems: new Set(),
-  fluxoCollapsedDates: new Set(),
+  fluxoExpandedDates: new Set(), // dias que a pessoa abriu manualmente nesta sessão — começa vazio (tudo recolhido) e reseta a cada reabertura do app
   openAccounts: new Set(),
+  selectModeOn: false, // seleção múltipla (editar/excluir vários lançamentos de uma vez)
+  selectedItems: new Set(), // chaves "kind-id" selecionadas
   pendingDoneToggle: null,
   accounts: SEED_ACCOUNTS,
   rate: SEED_RATE,
@@ -798,6 +810,19 @@ function commitOps(ops) {
 
 /* exclui uma despesa/receita (e, se for transferência, a outra ponta junto) — usada tanto
    pelo botão "Excluir lançamento" expandido quanto pelo ícone de x nas listas. */
+/* "(2 de 10)" ao lado da descrição, quando o lançamento faz parte de uma série
+   repetida criada de uma vez (semanal/mensal). */
+function repeatLabel(item) {
+  return item.repeatTotal > 1 ? ` <span style="color:var(--text-dim);font-weight:400">(${item.repeatIndex} de ${item.repeatTotal})</span>` : "";
+}
+
+function toggleSelectItem(kind, id) {
+  const key = `${kind}-${id}`;
+  if (state.selectedItems.has(key)) state.selectedItems.delete(key);
+  else state.selectedItems.add(key);
+  render();
+}
+
 function deleteLancamentoItem(kind, id) {
   const list = kind === "despesa" ? state.despesas : state.receitas;
   const item = list.find((i) => i.id === id);
@@ -1292,6 +1317,20 @@ function renderFab() {
     </div>`;
 }
 
+/* barra de ações da seleção múltipla — aparece empilhada logo acima da barra de abas
+   (mesmo fluxo flex do #app-shell), só quando há algo selecionado. */
+function renderBulkActionBar() {
+  if (!state.selectModeOn || state.selectedItems.size === 0) return "";
+  const n = state.selectedItems.size;
+  return `
+    <div style="flex-shrink:0;display:flex;align-items:center;gap:8px;background:var(--panel);border-top:1px solid var(--border);padding:10px 14px">
+      <span style="font-size:12.5px;font-weight:600;white-space:nowrap">${n} selecionado${n > 1 ? "s" : ""}</span>
+      <button class="backup-btn" data-action="bulk-mark-done" style="flex:1">${ICONS.check} Marcar como pago/recebido</button>
+      <button class="row-icon-btn danger" data-action="bulk-delete" aria-label="Excluir selecionados">${ICONS.trash}</button>
+      <button class="row-icon-btn" data-action="cancel-selection" aria-label="Cancelar seleção">${ICONS.xMark}</button>
+    </div>`;
+}
+
 function renderDoneDateModal() {
   if (!state.pendingDoneToggle) return "";
   const { kind } = state.pendingDoneToggle;
@@ -1520,7 +1559,7 @@ function renderFluxoTab() {
   const accounts = state.accounts;
   const accountIndex = buildAccountIndex(accounts);
   const accountNames = [...accounts.BRL, ...accounts.PEN].map((a) => a.name);
-  const mode = state.fluxoMode;
+  const mode = "real"; // "Previsto" foi removido desta aba a pedido — o gráfico previsto continua na aba Gráfico
 
   const currentBalances = computeBalancesAt(accounts, state.despesas, state.receitas, "real", today);
   const currentTotals = totalsFromBalances(accounts, currentBalances, state.rate, state.worstCaseTaxPct);
@@ -1548,10 +1587,6 @@ function renderFluxoTab() {
   
   return `
     ${rateCardHtml()}
-    <div class="segmented">
-      <button class="${mode === "real" ? "active" : ""}" data-action="set-mode" data-mode="real">Real</button>
-      <button class="${mode === "previsto" ? "active" : ""}" data-action="set-mode" data-mode="previsto">Previsto</button>
-    </div>
 
     ${
       mode === "real"
@@ -1579,7 +1614,10 @@ function renderFluxoTab() {
         : ""
     }
 
-    <div class="section-label">${mode === "real" ? "🧾 Movimentações realizadas" : "🧾 Todos os lançamentos previstos"}</div>
+    <div class="section-label" style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <span>${mode === "real" ? "🧾 Movimentações realizadas" : "🧾 Todos os lançamentos previstos"}</span>
+      <button class="link-btn" data-action="toggle-select-mode">${state.selectModeOn ? "Cancelar seleção" : "Selecionar vários"}</button>
+    </div>
     <input type="text" id="fluxo-search" class="search-input" data-action="search-text" data-key="fluxoSearchText"
       placeholder="Buscar por descrição…" value="${esc(state.fluxoSearchText)}"/>
     <div class="filter-row">
@@ -1621,7 +1659,7 @@ function fluxoRowHtml(row, accountNames) {
     <div class="item-card">
       <div class="item-top" data-action="toggle-open" data-kind="${row.kind}" data-id="${row.id}">
         <div class="item-mid">
-          <div class="ledger-desc">${esc(row.description)}</div>
+          <div class="ledger-desc">${esc(row.description)}${repeatLabel(row)}</div>
           <div class="ledger-meta">${fmtDate(row.date)} · ${esc(row.account)} <span style="color:${row.done ? "var(--brl)" : "var(--text-dim)"}">· ${row.done ? "liquidado" : "pendente"}</span></div>
         </div>
         <span class="ledger-value-wrap"><span class="ledger-arrow" style="color:${row.kind === "despesa" ? "var(--danger)" : "var(--brl)"}">${row.kind === "despesa" ? "▼" : "▲"}</span><span class="ledger-value" style="color:${row.kind === "despesa" ? "var(--danger)" : row.currency === "PEN" ? "var(--pen)" : "var(--brl)"}">${row.kind === "despesa" ? "-" : "+"}${fmt(row.value, row.currency)}</span></span>
@@ -1645,7 +1683,7 @@ function renderGroupedLedger(rows, accountNames) {
 
   return groups
     .map((g) => {
-      const collapsed = state.fluxoCollapsedDates.has(g.date);
+      const collapsed = !state.fluxoExpandedDates.has(g.date);
       const groupTotal = g.items.reduce((s, r) => s + (r.kind === "despesa" ? -1 : 1) * (r.currency === "PEN" ? r.value * state.rate : r.value), 0);
       return `
       <div class="ledger-group">
@@ -2134,7 +2172,10 @@ function renderLancamentosTab(kind) {
 
     ${state[showFormKey] ? newItemFormHtml(kind, accountNames) : ""}
 
-    <div class="section-label">${title}${filtered.length ? ` · ${filtered.length}` : ""}</div>
+    <div class="section-label" style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <span>${title}${filtered.length ? ` · ${filtered.length}` : ""}</span>
+      <button class="link-btn" data-action="toggle-select-mode">${state.selectModeOn ? "Cancelar seleção" : "Selecionar vários"}</button>
+    </div>
     ${
       filtered.length
         ? `
@@ -2157,16 +2198,39 @@ function renderLancamentosTab(kind) {
     </div>`;
 }
 
+/* detecta "computador" (mouse de verdade, sem toque) para trocar o <select> de Conta
+   por uma grade de botões clicáveis, como os cartões de saldo do Fluxo. */
+function isDesktopDevice() {
+  try {
+    return window.matchMedia && window.matchMedia("(pointer: fine) and (hover: hover)").matches;
+  } catch (e) {
+    return false;
+  }
+}
+
 function newItemFormHtml(kind, accountNames) {
   const repeatMode = state.newItemRepeat[kind] || "none";
   const alreadyDone = state.newItemAlreadyDone[kind] || false;
   const draft = state.newItemDraft[kind] || {};
   const doneLabel = kind === "despesa" ? "Já paga" : "Já recebida";
   const doneDateLabel = kind === "despesa" ? "Data em que pagou" : "Data em que recebeu";
+  const selectedAccount = draft.account || accountNames[0] || "";
   return `
     <div class="form-card" data-new-form="${kind}">
       <div class="field-row"><div class="field-label">Conta</div>
-        <select data-field="account">${accountNames.map((n) => `<option value="${esc(n)}" ${draft.account === n ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>
+        ${
+          isDesktopDevice()
+            ? `<input type="hidden" data-field="account" value="${esc(selectedAccount)}"/>
+          <div class="account-picker-grid">
+            ${accountNames
+              .map(
+                (n) =>
+                  `<button type="button" class="account-pick-btn ${n === selectedAccount ? "active" : ""}" data-action="pick-account-card" data-kind="${kind}" data-account="${esc(n)}">${esc(n)}</button>`
+              )
+              .join("")}
+          </div>`
+            : `<select data-field="account">${accountNames.map((n) => `<option value="${esc(n)}" ${n === selectedAccount ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>`
+        }
       </div>
       <div class="field-row"><div class="field-label">Descrição</div>
         <input type="text" data-field="description" placeholder="Ex: Aluguel" value="${esc(draft.description || "")}"/>
@@ -2215,6 +2279,13 @@ function newItemFormHtml(kind, accountNames) {
 /* ícones de lápis (editar = expandir os campos) e x (excluir direto, com confirmação) —
    reaproveitados nas listas de Despesas, Receitas e também no Fluxo. */
 function rowIconBtnsHtml(kind, id, description) {
+  if (state.selectModeOn) {
+    const selected = state.selectedItems.has(`${kind}-${id}`);
+    return `
+      <div class="row-icon-btns">
+        <button class="row-icon-btn ${selected ? "selected" : ""}" data-action="toggle-select-item" data-kind="${kind}" data-id="${id}" aria-label="Selecionar" style="color:${selected ? "var(--brl)" : "var(--text-dim)"}">${selected ? ICONS.circleCheck : ICONS.circle}</button>
+      </div>`;
+  }
   return `
     <div class="row-icon-btns">
       <button class="row-icon-btn" data-action="toggle-open" data-kind="${kind}" data-id="${id}" aria-label="Editar">${ICONS.pencil}</button>
@@ -2257,7 +2328,7 @@ function lancamentoRowHtml(item, kind, currency, doneLabel, doneDateLabel, accou
           ${item.done ? ICONS.circleCheck : ICONS.circle}
         </button>
         <div class="item-mid">
-          <div class="ledger-desc">${esc(item.description)}</div>
+          <div class="ledger-desc">${esc(item.description)}${repeatLabel(item)}</div>
           <div class="ledger-meta">${esc(item.account)} · vence ${fmtDate(item.dueDate)}</div>
         </div>
         <div class="ledger-value" style="color:${currency === "PEN" ? "var(--pen)" : "var(--brl)"}">${fmt(item.value, currency)}</div>
@@ -2428,7 +2499,7 @@ function render() {
   else if (state.tab === "receitas") body = renderLancamentosTab("receita");
   else if (state.tab === "contas") body = renderContasTab();
 
-  shell.innerHTML = `${renderHeader()}${renderUpdateBanner()}<main>${body}</main>${renderTabBar()}${renderFab()}${renderDoneDateModal()}${renderTransferModal()}${renderQuickAddModal()}${renderSettingsModal()}`;
+  shell.innerHTML = `${renderHeader()}${renderUpdateBanner()}<main>${body}</main>${renderBulkActionBar()}${renderTabBar()}${renderFab()}${renderDoneDateModal()}${renderTransferModal()}${renderQuickAddModal()}${renderSettingsModal()}`;
   bindEvents();
   adjustStickyNavOffset();
 
@@ -2581,6 +2652,14 @@ function bindEvents() {
     })
   );
 
+  shell.querySelectorAll('[data-action="pick-account-card"]').forEach((btn) =>
+    btn.addEventListener("click", () => {
+      captureNewItemDraft(btn.dataset.kind);
+      state.newItemDraft[btn.dataset.kind].account = btn.dataset.account;
+      render();
+    })
+  );
+
   shell.querySelectorAll('[data-action="toggle-already-done"]').forEach((cb) =>
     cb.addEventListener("change", (e) => {
       captureNewItemDraft(cb.dataset.kind);
@@ -2618,7 +2697,9 @@ function bindEvents() {
         doneDate = form.querySelector('[data-field="doneDate"]').value || todayStr();
       }
 
-      const newItems = dueDates.map((dueDate) => ({
+      // numera a série ("1 de 10", "2 de 10"...) quando é um lançamento repetido, para
+      // aparecer na lista junto da descrição.
+      const newItems = dueDates.map((dueDate, idx) => ({
         id: uid(kind),
         account,
         description,
@@ -2626,6 +2707,7 @@ function bindEvents() {
         value,
         done: alreadyDone,
         doneDate: alreadyDone ? doneDate : null,
+        ...(dueDates.length > 1 ? { repeatIndex: idx + 1, repeatTotal: dueDates.length } : {}),
       }));
 
       applyLocal(() => {
@@ -2644,13 +2726,82 @@ function bindEvents() {
 
   shell.querySelectorAll('[data-action="toggle-open"]').forEach((row) =>
     row.addEventListener("click", (e) => {
-      if (e.target.closest('[data-action="toggle-done"], [data-action="quick-delete-item"]')) return;
+      if (e.target.closest('[data-action="toggle-done"], [data-action="quick-delete-item"], [data-action="toggle-select-item"]')) return;
+      if (state.selectModeOn) {
+        toggleSelectItem(row.dataset.kind, row.dataset.id);
+        return;
+      }
       const key = `${row.dataset.kind}-${row.dataset.id}`;
       if (state.openItems.has(key)) state.openItems.delete(key);
       else state.openItems.add(key);
       render();
     })
   );
+
+  shell.querySelectorAll('[data-action="toggle-select-item"]').forEach((btn) =>
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleSelectItem(btn.dataset.kind, btn.dataset.id);
+    })
+  );
+
+  shell.querySelectorAll('[data-action="toggle-select-mode"]').forEach((btn) =>
+    btn.addEventListener("click", () => {
+      state.selectModeOn = !state.selectModeOn;
+      state.selectedItems.clear();
+      render();
+    })
+  );
+
+  const bulkMarkDoneBtn = shell.querySelector('[data-action="bulk-mark-done"]');
+  if (bulkMarkDoneBtn)
+    bulkMarkDoneBtn.addEventListener("click", () => {
+      const today = todayStr();
+      const ops = [];
+      let anyDespesa = false;
+      applyLocal(() => {
+        state.selectedItems.forEach((key) => {
+          const sep = key.indexOf("-");
+          const kind = key.slice(0, sep);
+          const id = key.slice(sep + 1);
+          const list = kind === "despesa" ? state.despesas : state.receitas;
+          const item = list.find((i) => i.id === id);
+          if (!item || item.done) return;
+          item.done = true;
+          item.doneDate = today;
+          ops.push({ ref: (kind === "despesa" ? despesaDocRef : receitaDocRef)(id), type: "set", data: { done: true, doneDate: today }, merge: true });
+          if (kind === "despesa") anyDespesa = true;
+        });
+        state.selectModeOn = false;
+        state.selectedItems.clear();
+      });
+      commitOps(ops);
+      if (anyDespesa) scheduleGoogleCalendarSync();
+    });
+
+  const bulkDeleteBtn = shell.querySelector('[data-action="bulk-delete"]');
+  if (bulkDeleteBtn)
+    bulkDeleteBtn.addEventListener("click", () => {
+      const keys = [...state.selectedItems];
+      if (keys.length === 0) return;
+      if (!confirm(`Excluir ${keys.length} lançamento(s) selecionado(s)?`)) return;
+      state.selectModeOn = false;
+      state.selectedItems.clear();
+      keys.forEach((key) => {
+        const sep = key.indexOf("-");
+        const kind = key.slice(0, sep);
+        const id = key.slice(sep + 1);
+        deleteLancamentoItem(kind, id);
+      });
+    });
+
+  const cancelSelectionBtn = shell.querySelector('[data-action="cancel-selection"]');
+  if (cancelSelectionBtn)
+    cancelSelectionBtn.addEventListener("click", () => {
+      state.selectModeOn = false;
+      state.selectedItems.clear();
+      render();
+    });
 
   shell.querySelectorAll('[data-action="quick-delete-item"]').forEach((btn) =>
     btn.addEventListener("click", (e) => {
@@ -2672,8 +2823,8 @@ function bindEvents() {
   shell.querySelectorAll('[data-action="toggle-date-group"]').forEach((btn) =>
     btn.addEventListener("click", () => {
       const date = btn.dataset.date;
-      if (state.fluxoCollapsedDates.has(date)) state.fluxoCollapsedDates.delete(date);
-      else state.fluxoCollapsedDates.add(date);
+      if (state.fluxoExpandedDates.has(date)) state.fluxoExpandedDates.delete(date);
+      else state.fluxoExpandedDates.add(date);
       render();
     })
   );
@@ -2681,14 +2832,14 @@ function bindEvents() {
   const expandAllBtn = shell.querySelector('[data-action="expand-all-dates"]');
   if (expandAllBtn)
     expandAllBtn.addEventListener("click", () => {
-      state.fluxoCollapsedDates.clear();
+      shell.querySelectorAll('[data-action="toggle-date-group"]').forEach((btn) => state.fluxoExpandedDates.add(btn.dataset.date));
       render();
     });
 
   const collapseAllBtn = shell.querySelector('[data-action="collapse-all-dates"]');
   if (collapseAllBtn)
     collapseAllBtn.addEventListener("click", () => {
-      shell.querySelectorAll('[data-action="toggle-date-group"]').forEach((btn) => state.fluxoCollapsedDates.add(btn.dataset.date));
+      state.fluxoExpandedDates.clear();
       render();
     });
 
