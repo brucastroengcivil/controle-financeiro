@@ -6,7 +6,7 @@
 <title>Controle Financeiro</title>
 <link rel="manifest" href="manifest.json" />
 <meta name="theme-color" content="#ffffff" />
-<meta name="app-build" content="2026-11-01.2" />
+<meta name="app-build" content="2026-11-03.1" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="Financeiro" />
@@ -249,9 +249,12 @@
     max-width: 100%; -webkit-appearance: none; appearance: none;
   }
   /* inputs numéricos curtos inline (taxa de câmbio, % de imposto) — sem as setinhas
-     nativas de incremento, pra sobrar espaço pro número inteiro aparecer. */
-  .inline-num-input {
-    width: 70px; padding: 8px 6px; text-align: right; -moz-appearance: textfield;
+     nativas de incremento, pra sobrar espaço pro número inteiro aparecer. Precisa do
+     seletor "input.inline-num-input" (não só ".inline-num-input") pra ter a mesma
+     especificidade do "input[type=number]" genérico acima e vencer o empate por ordem
+     (senão o genérico ganhava e esticava o campo pra 100% da linha). */
+  input.inline-num-input {
+    width: 70px; flex: 0 0 auto; padding: 8px 6px; text-align: right; -moz-appearance: textfield;
   }
   .inline-num-input::-webkit-outer-spin-button, .inline-num-input::-webkit-inner-spin-button {
     -webkit-appearance: none; margin: 0;
@@ -385,7 +388,7 @@
  *  Sincroniza via Firebase Firestore (tempo real + persistência offline).
  * ---------------------------------------------------------------------- */
 
-const APP_VERSION = "1.16"; // versão curta mostrada ao lado do título — suba junto com o app-build lá no <head>
+const APP_VERSION = "1.17"; // versão curta mostrada ao lado do título — suba junto com o app-build lá no <head>
 const APP_BUILD = document.querySelector('meta[name="app-build"]')?.content || "desconhecida";
 
 const firebaseConfig = {
@@ -512,6 +515,8 @@ let state = {
   fluxoExpandedDates: new Set(), // dias que a pessoa abriu manualmente nesta sessão — começa vazio (tudo recolhido) e reseta a cada reabertura do app
   openAccounts: new Set(),
   selectModeOn: false, // seleção múltipla (editar/excluir vários lançamentos de uma vez)
+  bulkEditModal: false, // caixa de editar um campo em todos os selecionados de uma vez
+  bulkEditField: "account", // campo escolhido na caixa acima: "account" | "description" | "dueDate" | "value"
   selectedItems: new Set(), // chaves "kind-id" selecionadas
   pendingDoneToggle: null,
   accounts: SEED_ACCOUNTS,
@@ -1344,11 +1349,60 @@ function renderBulkActionBar() {
   if (!state.selectModeOn || state.selectedItems.size === 0) return "";
   const n = state.selectedItems.size;
   return `
-    <div style="flex-shrink:0;display:flex;align-items:center;gap:8px;background:var(--panel);border-top:1px solid var(--border);padding:10px 14px">
-      <span style="font-size:12.5px;font-weight:600;white-space:nowrap">${n} selecionado${n > 1 ? "s" : ""}</span>
-      <button class="backup-btn" data-action="bulk-mark-done" style="flex:1">${ICONS.check} Marcar como pago/recebido</button>
-      <button class="row-icon-btn danger" data-action="bulk-delete" aria-label="Excluir selecionados">${ICONS.trash}</button>
-      <button class="row-icon-btn" data-action="cancel-selection" aria-label="Cancelar seleção">${ICONS.xMark}</button>
+    <div style="flex-shrink:0;display:flex;flex-direction:column;gap:6px;background:var(--panel);border-top:1px solid var(--border);padding:10px 14px">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:12.5px;font-weight:600">${n} selecionado${n > 1 ? "s" : ""}</span>
+        <button class="row-icon-btn" data-action="cancel-selection" aria-label="Cancelar seleção">${ICONS.xMark}</button>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="backup-btn" data-action="open-bulk-edit" style="flex:1">${ICONS.pencil} Editar</button>
+        <button class="backup-btn" data-action="bulk-mark-done" style="flex:1">${ICONS.check} Marcar pago/recebido</button>
+        <button class="row-icon-btn danger" data-action="bulk-delete" aria-label="Excluir selecionados">${ICONS.trash}</button>
+      </div>
+    </div>`;
+}
+
+/* caixa (modal) pra editar UM campo de todos os lançamentos selecionados de uma vez
+   (conta, descrição, data prevista ou valor) — aberta pelo "Editar" da barra de seleção
+   múltipla. Lê o valor do campo direto do DOM ao aplicar, sem guardar rascunho no state,
+   pra não precisar re-renderizar a cada tecla digitada (perderia o foco/cursor). */
+function renderBulkEditModal() {
+  if (!state.bulkEditModal) return "";
+  const field = state.bulkEditField;
+  const accountNames = [...state.accounts.BRL, ...state.accounts.PEN].map((a) => a.name);
+  const n = state.selectedItems.size;
+
+  let fieldInputHtml = "";
+  if (field === "account") {
+    fieldInputHtml = `<select data-action="bulk-edit-value-input">${accountNames.map((n2) => `<option value="${esc(n2)}">${esc(n2)}</option>`).join("")}</select>`;
+  } else if (field === "description") {
+    fieldInputHtml = `<input type="text" data-action="bulk-edit-value-input" placeholder="Nova descrição"/>`;
+  } else if (field === "dueDate") {
+    fieldInputHtml = `<input type="date" data-action="bulk-edit-value-input" value="${todayStr()}"/>`;
+  } else {
+    fieldInputHtml = `<input type="number" step="0.01" data-action="bulk-edit-value-input" placeholder="0.00"/>`;
+  }
+
+  return `
+    <div class="modal-overlay" data-action="cancel-bulk-edit">
+      <div class="modal-card" data-action="stop-propagation">
+        <div class="section-label" style="margin-top:0">✏️ Editar ${n} selecionado${n > 1 ? "s" : ""}</div>
+        <div class="field-row"><div class="field-label">O que você quer mudar</div>
+          <select data-action="bulk-edit-set-field">
+            <option value="account" ${field === "account" ? "selected" : ""}>Conta</option>
+            <option value="description" ${field === "description" ? "selected" : ""}>Descrição</option>
+            <option value="dueDate" ${field === "dueDate" ? "selected" : ""}>Data prevista</option>
+            <option value="value" ${field === "value" ? "selected" : ""}>Valor</option>
+          </select>
+        </div>
+        <div class="field-row"><div class="field-label">Novo valor (aplicado aos ${n} selecionados)</div>
+          ${fieldInputHtml}
+        </div>
+        <div class="form-actions" style="margin-top:14px">
+          <button class="cancel-btn" data-action="cancel-bulk-edit">Cancelar</button>
+          <button class="add-btn" data-action="apply-bulk-edit">${ICONS.check} Aplicar</button>
+        </div>
+      </div>
     </div>`;
 }
 
@@ -1448,8 +1502,9 @@ function renderEditItemModal() {
       <div class="modal-card" data-action="stop-propagation">
         <div class="section-label" style="margin-top:0">${title}</div>
         ${itemDetailFieldsHtml(item, kind, currency, doneDateLabel, accountNames)}
-        <div class="form-actions" style="margin-top:14px">
-          <button class="add-btn" data-action="close-edit-modal" style="flex:1">${ICONS.check} Fechar</button>
+        <div class="form-actions">
+          <button class="cancel-btn" data-action="close-edit-modal">Cancelar</button>
+          <button class="add-btn" data-action="close-edit-modal">${ICONS.check} Salvar</button>
         </div>
       </div>
     </div>`;
@@ -1862,11 +1917,17 @@ function buildMonthlyCurrencyTotals(kind) {
 
 /* gráfico de barras agrupado por mês: uma barrinha R$ e uma S/ lado a lado em cada um
    dos 12 meses — mostra o total de despesa (ou receita) de cada mês, por moeda. */
+/* número compacto pra rotular as barras sem ocupar muito espaço (sem decimais,
+   com separador de milhar) — ex: 1234.5 -> "1.234". */
+function compactNum(v) {
+  return Math.round(v).toLocaleString("pt-BR");
+}
+
 function buildMonthlyCurrencyBarChart(monthlyTotals) {
   const W = 400,
-    H = 260,
+    H = 300,
     PAD_X = 10,
-    PAD_TOP = 24,
+    PAD_TOP = 60, // espaço extra em cima pros rótulos de valor, que ficam verticais acima de cada barra
     PAD_BOTTOM = 56;
   const maxVal = Math.max(...monthlyTotals.map((m) => Math.max(m.brl, m.pen)), 1);
   const usableH = H - PAD_TOP - PAD_BOTTOM;
@@ -1875,7 +1936,7 @@ function buildMonthlyCurrencyBarChart(monthlyTotals) {
   const barW = Math.min(slotW * 0.32, 13);
   const gap = 3;
 
-  const bars = monthlyTotals.map((m) => m).map((m, i) => {
+  const bars = monthlyTotals.map((m, i) => {
     const slotCx = PAD_X + slotW * i + slotW / 2;
     const brlH = (m.brl / maxVal) * usableH;
     const penH = (m.pen / maxVal) * usableH;
@@ -1891,10 +1952,35 @@ function buildMonthlyCurrencyBarChart(monthlyTotals) {
     };
   });
 
+  // 3 linhas de grade horizontais (25/50/75% da altura útil) pra facilitar comparar as barras
+  const gridLines = [0.25, 0.5, 0.75]
+    .map((frac) => {
+      const y = (H - PAD_BOTTOM - usableH * frac).toFixed(1);
+      return `<line x1="${PAD_X}" y1="${y}" x2="${W - PAD_X}" y2="${y}" stroke="rgba(255,255,255,0.09)" stroke-width="1" stroke-dasharray="2,3"/>`;
+    })
+    .join("");
+
   const monthLabels = bars
     .map((b) => {
       const ly = H - PAD_BOTTOM + 10;
       return `<text x="${b.slotCx.toFixed(1)}" y="${ly}" text-anchor="end" font-size="9.5" fill="var(--text-dim)" font-family="'IBM Plex Mono',monospace" transform="rotate(-90 ${b.slotCx.toFixed(1)} ${ly})">${b.label}</text>`;
+    })
+    .join("");
+
+  // rótulo do valor em pé (igual o dos meses), logo acima de cada barra — assim não
+  // esbarra no rótulo vizinho mesmo com as barras coladas, e só aparece quando > 0.
+  const valueLabels = bars
+    .map((b) => {
+      let out = "";
+      if (b.brl > 0) {
+        const ly = b.yBRL - 4;
+        out += `<text x="${(b.xBRL + barW / 2).toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="start" font-size="8" fill="var(--brl)" font-family="'IBM Plex Mono',monospace" transform="rotate(-90 ${(b.xBRL + barW / 2).toFixed(1)} ${ly.toFixed(1)})">${compactNum(b.brl)}</text>`;
+      }
+      if (b.pen > 0) {
+        const ly = b.yPEN - 4;
+        out += `<text x="${(b.xPEN + barW / 2).toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="start" font-size="8" fill="var(--pen)" font-family="'IBM Plex Mono',monospace" transform="rotate(-90 ${(b.xPEN + barW / 2).toFixed(1)} ${ly.toFixed(1)})">${compactNum(b.pen)}</text>`;
+      }
+      return out;
     })
     .join("");
 
@@ -1908,8 +1994,10 @@ function buildMonthlyCurrencyBarChart(monthlyTotals) {
 
   return `
     <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
+      ${gridLines}
       <line x1="${PAD_X}" y1="${H - PAD_BOTTOM}" x2="${W - PAD_X}" y2="${H - PAD_BOTTOM}" stroke="rgba(255,255,255,0.22)" stroke-width="1"/>
       ${barsSvg}
+      ${valueLabels}
       ${monthLabels}
     </svg>
     <div style="display:flex;justify-content:center;gap:16px;font-size:11px;color:var(--text-dim);margin-top:4px">
@@ -2185,10 +2273,10 @@ function rateCardHtml() {
     <div class="rate-card">
       <div class="rate-row" style="flex-wrap:wrap;row-gap:8px">
         <span class="rate-text">💱 1 S/ =</span>
-        <input type="number" step="0.0001" class="inline-num-input" value="${state.rate}" data-action="set-rate"/>
+        <input type="number" step="0.0001" class="inline-num-input" style="width:80px" value="${state.rate}" data-action="set-rate"/>
         <span class="rate-text">R$</span>
         <span class="rate-text" style="margin-left:10px">🧾 Desconto S/ →</span>
-        <input type="number" step="0.1" min="0" max="100" class="inline-num-input" style="width:56px" value="${state.worstCaseTaxPct}" data-action="set-tax-pct"/>
+        <input type="number" step="0.1" min="0" max="100" class="inline-num-input" style="width:60px" value="${state.worstCaseTaxPct}" data-action="set-tax-pct"/>
         <span class="rate-text">%</span>
       </div>
       <div class="rate-meta-row">
@@ -2579,7 +2667,7 @@ function render() {
   else if (state.tab === "receitas") body = renderLancamentosTab("receita");
   else if (state.tab === "contas") body = renderContasTab();
 
-  shell.innerHTML = `${renderHeader()}${renderUpdateBanner()}<main>${body}</main>${renderBulkActionBar()}${renderTabBar()}${renderFab()}${renderDoneDateModal()}${renderTransferModal()}${renderQuickAddModal()}${renderEditItemModal()}${renderSettingsModal()}`;
+  shell.innerHTML = `${renderHeader()}${renderUpdateBanner()}<main>${body}</main>${renderBulkActionBar()}${renderTabBar()}${renderFab()}${renderDoneDateModal()}${renderTransferModal()}${renderQuickAddModal()}${renderEditItemModal()}${renderBulkEditModal()}${renderSettingsModal()}`;
   bindEvents();
   adjustStickyNavOffset();
 
@@ -2619,6 +2707,10 @@ function bindEvents() {
   shell.querySelectorAll('[data-action="set-tab"]').forEach((btn) =>
     btn.addEventListener("click", () => {
       state.tab = btn.dataset.tab;
+      // trocar de aba sai do modo "selecionar vários" — a seleção não deve
+      // persistir entre páginas, senão fica fácil esquecer que está ativa.
+      state.selectModeOn = false;
+      state.selectedItems.clear();
       render();
     })
   );
@@ -2886,6 +2978,62 @@ function bindEvents() {
       state.selectModeOn = false;
       state.selectedItems.clear();
       render();
+    });
+
+  const openBulkEditBtn = shell.querySelector('[data-action="open-bulk-edit"]');
+  if (openBulkEditBtn)
+    openBulkEditBtn.addEventListener("click", () => {
+      state.bulkEditModal = true;
+      state.bulkEditField = "account";
+      render();
+    });
+
+  shell.querySelectorAll('[data-action="cancel-bulk-edit"]').forEach((el) =>
+    el.addEventListener("click", () => {
+      state.bulkEditModal = false;
+      render();
+    })
+  );
+
+  const bulkEditFieldSel = shell.querySelector('[data-action="bulk-edit-set-field"]');
+  if (bulkEditFieldSel)
+    bulkEditFieldSel.addEventListener("change", (e) => {
+      state.bulkEditField = e.target.value;
+      render();
+    });
+
+  const applyBulkEditBtn = shell.querySelector('[data-action="apply-bulk-edit"]');
+  if (applyBulkEditBtn)
+    applyBulkEditBtn.addEventListener("click", () => {
+      const field = state.bulkEditField;
+      const input = shell.querySelector('[data-action="bulk-edit-value-input"]');
+      if (!input) return;
+      let newValue = input.value;
+      if (field === "value") newValue = parseFloat(newValue) || 0;
+      if (field === "description" && !newValue.trim()) return;
+      if (field === "dueDate" && !newValue) return;
+      if (field === "account" && !newValue) return;
+
+      const ops = [];
+      let anyDespesa = false;
+      applyLocal(() => {
+        state.selectedItems.forEach((key) => {
+          const sep = key.indexOf("-");
+          const kind = key.slice(0, sep);
+          const id = key.slice(sep + 1);
+          const list = kind === "despesa" ? state.despesas : state.receitas;
+          const item = list.find((i) => i.id === id);
+          if (!item) return;
+          item[field] = newValue;
+          ops.push({ ref: (kind === "despesa" ? despesaDocRef : receitaDocRef)(id), type: "set", data: { [field]: newValue }, merge: true });
+          if (kind === "despesa") anyDespesa = true;
+        });
+        state.bulkEditModal = false;
+        state.selectModeOn = false;
+        state.selectedItems.clear();
+      });
+      commitOps(ops);
+      if (anyDespesa) scheduleGoogleCalendarSync();
     });
 
   shell.querySelectorAll('[data-action="quick-delete-item"]').forEach((btn) =>
